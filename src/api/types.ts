@@ -37,6 +37,25 @@ export interface SandboxProvisioning {
   [k: string]: unknown;
 }
 
+export interface PolicyNetworkRule {
+  name?: string;
+  endpoints?: Array<{
+    host?: string;
+    port?: number;
+    ports?: number[];
+    protocol?: string;
+    access?: string;
+    enforcement?: string;
+    path?: string;
+    rules?: Array<{ allow?: { method?: string; path?: string }; deny?: { method?: string; path?: string } }>;
+    [k: string]: unknown;
+  }>;
+  binaries?: Array<{ path?: string } | string>;
+  rules?: Array<{ allow?: { method?: string; path?: string }; deny?: { method?: string; path?: string } }>;
+  deny_rules?: Array<{ method?: string; path?: string }>;
+  [k: string]: unknown;
+}
+
 export interface SandboxPolicy {
   version?: number;
   filesystem_policy?: {
@@ -45,8 +64,10 @@ export interface SandboxPolicy {
     read_write: string[];
   };
   network?: unknown;
+  network_policies?: Record<string, PolicyNetworkRule>;
   process?: unknown;
   landlock?: { compatibility: string };
+  [k: string]: unknown;
 }
 
 export interface EndpointStatus {
@@ -85,7 +106,7 @@ export interface Sandbox {
   };
   endpoint_statuses: EndpointStatus[];
   policy?: SandboxPolicy;
-  created_from_workload_template: string | null;
+  created_from_workload_template: string | { name: string; resource_version?: string | number } | null;
   main_process_instance_id?: string;
   main_process_started_at_ms?: number;
   last_token_grant_failure?: unknown;
@@ -217,7 +238,7 @@ export interface ProviderProfile {
 export interface SandboxTemplate {
   name: string;
   image?: string;
-  resources?: unknown;
+  resources?: { cpu?: string; memory?: string; gpu?: number };
   labels?: Record<string, string>;
   created_at?: string;
   [k: string]: unknown;
@@ -343,4 +364,56 @@ export interface ProviderList {
 export interface RunResult extends ExecResult {
   started: boolean;
   phase: string | null;
+}
+
+export interface PolicyUpdateBody {
+  addEndpoints?: string[];
+  removeEndpoints?: string[];
+  addAllow?: string[];
+  addDeny?: string[];
+  removeRules?: string[];
+  binaries?: string[];
+  ruleName?: string;
+  anyBinary?: boolean;
+  endpointPath?: string;
+  dryRun?: boolean;
+  wait?: boolean;
+}
+
+export interface StartupCommand {
+  /** The sandbox this observation belongs to — guards against stale cross-sandbox data. */
+  sandbox: string;
+  command: string | null;
+  pid: number | null;
+  elapsed_s: number | null;
+  /** True when the main process is gone and this is the last observed command. */
+  stale: boolean;
+  reason: string | null;
+}
+
+export interface AuthUser {
+  name: string;
+  email: string;
+  roles: string[];
+  groups: string[];
+  activeRole: string | null;
+  issuer: string;
+  admin: boolean;
+}
+
+export interface EntraTenant {
+  tenantId: string;
+  displayName: string;
+  defaultDomain: string;
+}
+
+export interface AuthConfig {
+  mode: 'local' | 'oidc';
+  issuers: Array<{ name: string; issuer: string }>;
+  clientId: string;
+  entra: { enabled: boolean; tenant: string; clientId: string; issuer: string };
+  local: { token: boolean; mtls: boolean; anonymous: boolean };
+  tls: boolean;
+  localUrl: string;
+  oidcUrl: string;
 }

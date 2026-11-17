@@ -19,7 +19,7 @@ import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import InboxRoundedIcon from '@mui/icons-material/InboxRounded';
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
-import { MONO, panelSx } from '../theme';
+import { MONO, SANS, panelSx } from '../theme';
 import { phaseStyle } from '../lib/phases';
 import { copyToClipboard } from '../lib/format';
 
@@ -38,7 +38,7 @@ export const Panel = memo(function Panel({
       variant="outlined"
       sx={{
         ...panelSx(palette.mode as 'dark' | 'light'),
-        p: dense ? 1.5 : 2.25,
+        p: dense ? 1.75 : 2.5,
         ...sx,
       }}
     >
@@ -55,22 +55,83 @@ export const SectionLabel = memo(function SectionLabel({
   right?: ReactNode;
 }) {
   return (
-    <Stack direction="row" sx={{ mb: 1.25, gap: 1.5, alignItems: "center", justifyContent: "space-between" }}>
-      <Typography
-        sx={{
-          color: 'text.secondary',
-          fontSize: 10.5,
-          letterSpacing: '0.16em',
-          textTransform: 'uppercase',
-          fontWeight: 700,
-          fontFamily: MONO,
-        }}
-      >
-        {children}
-      </Typography>
+    <Stack direction="row" sx={{ mb: 1.5, gap: 1.5, alignItems: 'center', justifyContent: 'space-between' }}>
+      <Stack direction="row" spacing={0.85} sx={{ alignItems: 'center', minWidth: 0 }}>
+        <Box
+          sx={{
+            width: 3,
+            height: 12,
+            borderRadius: 0,
+            flexShrink: 0,
+            bgcolor: 'primary.main',
+          }}
+        />
+        <Typography
+          sx={{
+            color: 'text.secondary',
+            fontSize: 10.5,
+            letterSpacing: '0.085em',
+            textTransform: 'uppercase',
+            fontWeight: 680,
+            fontFamily: SANS,
+          }}
+        >
+          {children}
+        </Typography>
+      </Stack>
       {right ? (
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
           {right}
+        </Stack>
+      ) : null}
+    </Stack>
+  );
+});
+
+export const PageHeader = memo(function PageHeader({
+  title,
+  description,
+  eyebrow,
+  actions,
+  sx,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  eyebrow?: ReactNode;
+  actions?: ReactNode;
+  sx?: object;
+}) {
+  return (
+    <Stack
+      direction={{ xs: 'column', md: 'row' }}
+      spacing={{ xs: 2, md: 3 }}
+      sx={{
+        justifyContent: 'space-between',
+        alignItems: { xs: 'stretch', md: 'flex-start' },
+        textAlign: 'left',
+        ...sx,
+      }}
+    >
+      <Box sx={{ minWidth: 0, maxWidth: 840 }}>
+        {eyebrow ? <Box sx={{ mb: 0.7 }}>{eyebrow}</Box> : null}
+        <Typography variant="h2">{title}</Typography>
+        {description ? (
+          <Typography
+            sx={{
+              mt: 0.75,
+              maxWidth: 760,
+              fontSize: 13.5,
+              lineHeight: 1.65,
+              color: 'text.secondary',
+            }}
+          >
+            {description}
+          </Typography>
+        ) : null}
+      </Box>
+      {actions ? (
+        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1, flexShrink: 0, alignItems: 'center' }}>
+          {actions}
         </Stack>
       ) : null}
     </Stack>
@@ -99,7 +160,6 @@ export const PhaseDot = memo(function PhaseDot({
         flexShrink: 0,
         borderRadius: '50%',
         bgcolor: s.color,
-        boxShadow: `0 0 0 3px ${s.color}22`,
         animation: s.transient ? `${pulse} 1.15s ease-in-out infinite` : 'none',
       }}
     />
@@ -108,10 +168,12 @@ export const PhaseDot = memo(function PhaseDot({
 
 export const PhaseChip = memo(function PhaseChip({ phase }: { phase: string | undefined }) {
   const s = phaseStyle(phase);
+  const { palette } = useTheme();
+  const text = palette.mode === 'light' ? (s.colorLight ?? s.color) : s.color;
   return (
-    <Stack direction="row" spacing={0.75} sx={{ px: 0.85, py: 0.3, borderRadius: 1.25, border: '1px solid', borderColor: `${s.color}44`, bgcolor: `${s.color}14`, width: 'fit-content', alignItems: "center" }}>
+    <Stack direction="row" spacing={0.75} sx={{ px: 0.85, py: 0.3, borderRadius: 0.5, border: '1px solid', borderColor: `${s.color}55`, bgcolor: `${s.color}14`, width: 'fit-content', alignItems: "center" }}>
       <PhaseDot phase={phase} size={6} />
-      <Typography sx={{ color: s.color, fontSize: 11.5, fontWeight: 650, fontFamily: MONO }}>
+      <Typography sx={{ color: text, fontSize: 11.5, fontWeight: 700, fontFamily: MONO }}>
         {s.label}
       </Typography>
     </Stack>
@@ -198,16 +260,17 @@ export const CodeBlock = memo(function CodeBlock({
         borderRadius: 2,
         border: '1px solid',
         borderColor: 'divider',
-        bgcolor: palette.mode === 'dark' ? 'rgba(0,0,0,0.32)' : 'rgba(16,22,44,0.045)',
+        bgcolor: palette.mode === 'dark' ? '#0d0d0d' : '#f7f7f7',
         overflow: 'hidden',
       }}
     >
       <Stack direction="row" sx={{ px: 1.25, py: 0.6, borderBottom: '1px solid', borderColor: 'divider', alignItems: "center", justifyContent: "space-between" }}>
-        <Box sx={{ display: 'flex', gap: 0.6 }}>
-          {['#ff5f6d', '#f2a53c', '#35d29a'].map((c) => (
-            <Box key={c} sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: `${c}bb` }} />
-          ))}
-        </Box>
+        <Stack direction="row" spacing={0.85} sx={{ alignItems: 'center' }}>
+          <Box sx={{ width: 8, height: 8, bgcolor: 'primary.main' }} />
+          <Typography sx={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 700, color: 'text.secondary' }}>
+            output
+          </Typography>
+        </Stack>
         <Stack direction="row" spacing={0.5}>
           <CopyButton value={value} />
           {actions}
@@ -270,7 +333,7 @@ export const ErrorNote = memo(function ErrorNote({
   hint?: string;
 }) {
   return (
-    <Stack direction="row" spacing={1.5} sx={{ p: 1.75, borderRadius: 2, border: '1px solid', borderColor: 'error.main', bgcolor: 'rgba(255,95,109,0.07)', alignItems: "flex-start" }}>
+    <Stack direction="row" spacing={1.5} sx={{ p: 1.75, borderRadius: 0.5, border: '1px solid', borderColor: 'error.main', bgcolor: 'rgba(255,84,73,0.08)', alignItems: "flex-start" }}>
       <ErrorOutlineRoundedIcon sx={{ color: 'error.main', fontSize: 20 }} />
       <Stack spacing={0.6} sx={{ flex: 1, minWidth: 0 }}>
         <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'error.main' }}>
@@ -382,8 +445,8 @@ export const IconAction = memo(function IconAction({
           color: disabled ? 'action.disabled' : color === 'inherit' ? 'text.secondary' : `${color}.main`,
           border: '1px solid',
           borderColor: 'divider',
-          borderRadius: 1.5,
-          '&:hover': { borderColor: 'primary.main', bgcolor: 'rgba(124,92,255,0.08)' },
+          borderRadius: 0.5,
+          '&:hover': { borderColor: 'primary.main', bgcolor: 'rgba(118,185,0,0.08)' },
         }}
       >
         {children}
@@ -410,8 +473,8 @@ export function SpectrumBar({
       <Box
         sx={{
           height,
-          borderRadius: 99,
-          bgcolor: palette.mode === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(16,22,44,0.06)',
+          borderRadius: 0,
+          bgcolor: palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
           border: '1px solid',
           borderColor: 'divider',
         }}
@@ -419,7 +482,7 @@ export function SpectrumBar({
     );
   }
   return (
-    <Stack direction="row" sx={{ borderRadius: 99, overflow: 'hidden', gap: '2px', bgcolor: 'transparent' }}>
+    <Stack direction="row" sx={{ borderRadius: 0, overflow: 'hidden', gap: '2px', bgcolor: 'transparent' }}>
       {segments
         .filter((s) => s.value > 0)
         .map((s) => (

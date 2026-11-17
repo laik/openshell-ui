@@ -9,7 +9,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   FormControlLabel,
   Grid,
   IconButton,
@@ -33,6 +32,7 @@ import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import ShieldRoundedIcon from '@mui/icons-material/ShieldRounded';
+import WindowRoundedIcon from '@mui/icons-material/WindowRounded';
 
 import { api } from '../api/client';
 import { useAsync } from '../hooks';
@@ -46,6 +46,7 @@ import {
   ErrorNote,
   LoadingBlock,
   Mono,
+  PageHeader,
   Panel,
 } from '../components/ui';
 
@@ -115,39 +116,36 @@ export default function Gateways() {
 
   return (
     <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ alignItems: { md: 'flex-end' } }}>
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="h2">Gateways</Typography>
-          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', fontFamily: MONO, mt: 0.4 }}>
-            register, verify and switch between gateways · tokens are written to the local CLI config, never kept in
-            the browser
-          </Typography>
-        </Box>
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-          <Button
-            size="small"
-            variant="outlined"
-            color="inherit"
-            startIcon={probingAll ? <CircularProgress size={14} /> : <ShieldRoundedIcon />}
-            disabled={probingAll || gateways.length === 0}
-            onClick={checkAll}
-          >
-            check all
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            color="inherit"
-            startIcon={<RefreshRoundedIcon />}
-            onClick={state.reload}
-          >
-            refresh
-          </Button>
-          <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setAddOpen(true)}>
-            add gateway
-          </Button>
-        </Stack>
-      </Stack>
+      <PageHeader
+        title="Gateways"
+        description="Register, verify and switch between gateways. Tokens are written to the local CLI config, never kept in the browser."
+        actions={
+          <>
+            <Button
+              size="small"
+              variant="outlined"
+              color="inherit"
+              startIcon={probingAll ? <CircularProgress size={14} /> : <ShieldRoundedIcon />}
+              disabled={probingAll || gateways.length === 0}
+              onClick={checkAll}
+            >
+              check all
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="inherit"
+              startIcon={<RefreshRoundedIcon />}
+              onClick={state.reload}
+            >
+              refresh
+            </Button>
+            <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setAddOpen(true)}>
+              add gateway
+            </Button>
+          </>
+        }
+      />
 
       <Grid container spacing={1.5}>
         {[
@@ -159,14 +157,32 @@ export default function Gateways() {
           <Grid key={stat.label} size={{ xs: 6, md: 3 }}>
             <Panel dense sx={{ height: '100%' }}>
               <Typography
-                sx={{ fontSize: 9.5, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'text.secondary', fontFamily: MONO }}
+                sx={{
+                  fontSize: 10.5,
+                  letterSpacing: '0.075em',
+                  textTransform: 'uppercase',
+                  color: 'text.secondary',
+                  fontWeight: 650,
+                }}
               >
                 {stat.label}
               </Typography>
-              <Typography sx={{ fontSize: 19, fontWeight: 660, fontFamily: MONO, mt: 0.35, lineHeight: 1.2 }}>
+              <Typography
+                sx={{
+                  fontSize: 22,
+                  fontWeight: 680,
+                  mt: 0.5,
+                  lineHeight: 1.15,
+                  letterSpacing: '-0.025em',
+                  fontVariantNumeric: 'tabular-nums',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {stat.value}
               </Typography>
-              <Typography sx={{ fontSize: 10.5, color: 'text.secondary', fontFamily: MONO, mt: 0.4 }}>
+              <Typography sx={{ fontSize: 11.5, color: 'text.secondary', mt: 0.4, lineHeight: 1.45 }}>
                 {stat.hint}
               </Typography>
             </Panel>
@@ -199,12 +215,12 @@ export default function Gateways() {
           const auth = authLabel(g.auth);
           const canToken = auth.kind === 'edge' || auth.kind === 'oidc';
           return (
-            <Grid key={g.name} size={{ xs: 12, lg: 6 }}>
+            <Grid key={g.name} size={{ xs: 12, lg: gateways.length === 1 ? 12 : 6 }}>
               <Panel
                 sx={{
                   height: '100%',
                   borderColor: selected ? 'primary.main' : 'divider',
-                  bgcolor: selected ? 'rgba(124,92,255,0.055)' : undefined,
+                  bgcolor: selected ? 'rgba(118,185,0,0.06)' : undefined,
                 }}
               >
                 <Stack spacing={1.5}>
@@ -248,91 +264,90 @@ export default function Gateways() {
                     <CopyButton value={g.endpoint} label="endpoint" />
                   </Stack>
 
-                  <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
-                    <Chip
-                      size="small"
-                      variant="outlined"
-                      label={g.is_remote ? 'remote' : 'local'}
-                      sx={{ fontFamily: MONO }}
-                    />
-                    <Chip
-                      size="small"
-                      variant="outlined"
-                      color={auth.color}
-                      label={auth.label}
-                      sx={{ fontFamily: MONO }}
-                    />
-                    {g.metadata?.oidc_issuer ? (
-                      <Tooltip title={g.metadata.oidc_issuer}>
-                        <Chip
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1.25}
+                    sx={{ alignItems: { sm: 'center' }, flexWrap: 'wrap', rowGap: 1.25 }}
+                  >
+                    <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={g.is_remote ? 'remote' : 'local'}
+                        sx={{ fontFamily: MONO }}
+                      />
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        color={auth.color}
+                        label={auth.label}
+                        sx={{ fontFamily: MONO }}
+                      />
+                      {g.metadata?.oidc_issuer ? (
+                        <Tooltip title={g.metadata.oidc_issuer}>
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label="oidc issuer"
+                            sx={{ fontFamily: MONO }}
+                          />
+                        </Tooltip>
+                      ) : null}
+                      {g.remote_host ? (
+                        <Chip size="small" variant="outlined" label={g.remote_host} sx={{ fontFamily: MONO }} />
+                      ) : null}
+                    </Stack>
+                    <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                      <Button
+                        size="small"
+                        variant={selected ? 'outlined' : 'contained'}
+                        startIcon={<SwapHorizRoundedIcon />}
+                        disabled={selected}
+                        onClick={async () => {
+                          try {
+                            await api.gateways.select(g.name);
+                            setGateway(g.name);
+                            toast(`scope switched to ${g.name}`);
+                            state.reload();
+                          } catch (err) {
+                            toast('could not select gateway', { kind: 'err', detail: (err as Error).message });
+                          }
+                        }}
+                      >
+                        {selected ? 'in scope' : g.active ? 'use' : 'switch to'}
+                      </Button>
+                      {canToken ? (
+                        <IconButton size="small" title="update token" onClick={() => setTokenFor(g)}>
+                          <KeyRoundedIcon fontSize="small" />
+                        </IconButton>
+                      ) : null}
+                      {canToken ? (
+                        <IconButton
                           size="small"
-                          variant="outlined"
-                          label="oidc issuer"
-                          sx={{ fontFamily: MONO }}
-                        />
-                      </Tooltip>
-                    ) : null}
-                    {g.remote_host ? (
-                      <Chip size="small" variant="outlined" label={g.remote_host} sx={{ fontFamily: MONO }} />
-                    ) : null}
-                  </Stack>
-
-                  <Divider />
-
-                  <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                    <Button
-                      size="small"
-                      variant={selected ? 'outlined' : 'contained'}
-                      startIcon={<SwapHorizRoundedIcon />}
-                      disabled={selected}
-                      onClick={async () => {
-                        try {
-                          await api.gateways.select(g.name);
-                          setGateway(g.name);
-                          toast(`scope switched to ${g.name}`);
-                          state.reload();
-                        } catch (err) {
-                          toast('could not select gateway', { kind: 'err', detail: (err as Error).message });
-                        }
-                      }}
-                    >
-                      {selected ? 'in scope' : g.active ? 'use' : 'switch to'}
-                    </Button>
-                    {canToken ? (
-                      <Button size="small" color="inherit" startIcon={<KeyRoundedIcon />} onClick={() => setTokenFor(g)}>
-                        token
-                      </Button>
-                    ) : null}
-                    {canToken ? (
-                      <Button
+                          title="browser login"
+                          onClick={() => setConfirm({ kind: 'login', gateway: g })}
+                        >
+                          <LoginRoundedIcon fontSize="small" />
+                        </IconButton>
+                      ) : null}
+                      {canToken ? (
+                        <IconButton
+                          size="small"
+                          title="log out"
+                          onClick={() => setConfirm({ kind: 'logout', gateway: g })}
+                        >
+                          <LogoutRoundedIcon fontSize="small" />
+                        </IconButton>
+                      ) : null}
+                      <IconButton
                         size="small"
-                        color="inherit"
-                        startIcon={<LoginRoundedIcon />}
-                        onClick={() => setConfirm({ kind: 'login', gateway: g })}
+                        color="error"
+                        title="remove gateway"
+                        onClick={() => setConfirm({ kind: 'remove', gateway: g })}
                       >
-                        login
-                      </Button>
-                    ) : null}
-                    {canToken ? (
-                      <Button
-                        size="small"
-                        color="inherit"
-                        startIcon={<LogoutRoundedIcon />}
-                        onClick={() => setConfirm({ kind: 'logout', gateway: g })}
-                      >
-                        logout
-                      </Button>
-                    ) : null}
-                    <Box sx={{ flex: 1 }} />
-                    <IconButton
-                      size="small"
-                      color="error"
-                      title="remove gateway"
-                      onClick={() => setConfirm({ kind: 'remove', gateway: g })}
-                      sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}
-                    >
-                      <DeleteOutlineRoundedIcon fontSize="small" />
-                    </IconButton>
+                        <DeleteOutlineRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </Stack>
                   </Stack>
                 </Stack>
               </Panel>
@@ -531,6 +546,140 @@ const EMPTY_FORM: AddForm = {
   activate: true,
 };
 
+/**
+ * Entra device-code token fetch for gateway registration: the second auth
+ * model beside the Keycloak-style password grant. The token's audience is the
+ * gateway's (audience/.default or the scopes field), not the console app, and
+ * no console session is created — the token lands in the dialog's token field.
+ */
+function EntraGatewayFetch({
+  audience,
+  scopes,
+  onToken,
+  onError,
+}: {
+  audience: string;
+  scopes: string;
+  onToken: (token: string) => void;
+  onError: (message: string) => void;
+}) {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [device, setDevice] = useState<{
+    flow: string;
+    user_code: string;
+    verification_uri: string;
+    verification_uri_complete?: string;
+    expires_in: number;
+    interval: number;
+  } | null>(null);
+  const [waiting, setWaiting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    api
+      .authConfig()
+      .then((c) => setEnabled(c.entra.enabled))
+      .catch(() => setEnabled(false));
+  }, []);
+
+  useEffect(() => {
+    if (!device || !waiting) return;
+    let alive = true;
+    let timer: number | undefined;
+    const tick = async () => {
+      try {
+        const r = await api.entraPoll(device.flow);
+        if (!alive) return;
+        if (r.status === 'ok' && r.access_token) {
+          setWaiting(false);
+          setDone(true);
+          onToken(r.access_token);
+          return;
+        }
+        if (r.status === 'pending' || r.status === 'slow_down') {
+          timer = window.setTimeout(tick, Math.max(device.interval, 3) * 1000);
+          return;
+        }
+        setWaiting(false);
+        onError(r.message ?? 'Entra sign-in failed');
+      } catch (err) {
+        if (!alive) return;
+        setWaiting(false);
+        onError((err as Error).message);
+      }
+    };
+    timer = window.setTimeout(tick, Math.max(device.interval, 3) * 1000);
+    return () => {
+      alive = false;
+      if (timer) window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [device, waiting]);
+
+  useEffect(() => {
+    if (!waiting) return;
+    const id = window.setInterval(() => setSeconds((v) => v + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [waiting]);
+
+  if (!enabled) return null;
+  const remaining = device ? Math.max(device.expires_in - seconds, 0) : 0;
+  const mmss = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`;
+
+  return (
+    <Box sx={{ p: 1.25, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+      <Typography sx={{ fontSize: 10.5, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 660, color: 'text.secondary', mb: 0.75 }}>
+        or fetch a token with Microsoft Entra device code
+      </Typography>
+      {device ? (
+        <Stack spacing={1}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <Mono sx={{ fontSize: 15, fontWeight: 700, letterSpacing: '0.18em' }}>{device.user_code}</Mono>
+            <CopyButton value={device.user_code} label="copy" />
+            <Button size="small" variant="outlined" color="inherit" href={device.verification_uri_complete || device.verification_uri} target="_blank" rel="noreferrer" startIcon={<WindowRoundedIcon fontSize="small" />}>
+              approve
+            </Button>
+          </Stack>
+          <Typography aria-live="polite" sx={{ fontSize: 10.5, color: 'text.secondary', fontFamily: MONO }}>
+            {done ? 'token placed in the field above' : waiting ? `waiting for approval… expires in ${mmss}` : 'start again to retry'}
+          </Typography>
+        </Stack>
+      ) : null}
+      {!waiting && !done ? (
+        <Button
+          size="small"
+          variant="outlined"
+          color="inherit"
+          startIcon={<WindowRoundedIcon fontSize="small" />}
+          onClick={async () => {
+            onError('');
+            setDone(false);
+            setSeconds(0);
+            try {
+              const aud = audience.trim();
+              const d = await api.entraStart({
+                purpose: 'gateway-token',
+                scopes: scopes.trim() || (aud ? `${aud}/.default` : undefined),
+              });
+              setDevice(d);
+              setWaiting(true);
+            } catch (err) {
+              onError((err as Error).message);
+            }
+          }}
+        >
+          get device code
+        </Button>
+      ) : null}
+      <Typography sx={{ fontSize: 10.5, color: 'text.secondary', mt: 0.75, lineHeight: 1.5 }}>
+        MFA-friendly sign-in with your work/school account. The token audience is the gateway’s (audience
+        <Mono>/.default</Mono> or the scopes field); no console session is created.
+      </Typography>
+    </Box>
+  );
+}
+
 function AddGatewayDialog({
   open,
   onClose,
@@ -545,6 +694,10 @@ function AddGatewayDialog({
   const [busy, setBusy] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [grantUser, setGrantUser] = useState('');
+  const [grantPass, setGrantPass] = useState('');
+  const [grantClient, setGrantClient] = useState('lab-cli');
+  const [grantBusy, setGrantBusy] = useState(false);
   const set = <K extends keyof AddForm>(key: K, value: AddForm[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -553,6 +706,9 @@ function AddGatewayDialog({
       setForm(EMPTY_FORM);
       setError(null);
       setShowToken(false);
+      setGrantUser('');
+      setGrantPass('');
+      setGrantBusy(false);
     }
   }, [open]);
 
@@ -592,8 +748,8 @@ function AddGatewayDialog({
     <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ pb: 0.5 }}>
         Add a gateway
-        <Typography sx={{ fontSize: 12, color: 'text.secondary', fontFamily: MONO, mt: 0.5 }}>
-          the endpoint is verified with <Mono>openshell status</Mono> before it is kept
+        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.55, mt: 0.6 }}>
+          The endpoint is verified with <Mono>openshell status</Mono> before it is kept.
         </Typography>
       </DialogTitle>
       <DialogContent>
@@ -706,6 +862,81 @@ function AddGatewayDialog({
                   ),
                 },
               }}
+            />
+          ) : null}
+
+          {form.mode === 'oidc' ? (
+            <Box sx={{ p: 1.25, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+              <Typography sx={{ fontSize: 10.5, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 660, color: 'text.secondary', mb: 0.75 }}>
+                or fetch a token with a password grant
+              </Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}>
+                <TextField
+                  fullWidth
+                  label="client id"
+                  value={grantClient}
+                  onChange={(e) => setGrantClient(e.target.value)}
+                  sx={{ maxWidth: 140 }}
+                  slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
+                />
+                <TextField
+                  fullWidth
+                  label="username"
+                  value={grantUser}
+                  onChange={(e) => setGrantUser(e.target.value)}
+                  slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
+                />
+                <TextField
+                  fullWidth
+                  label="password"
+                  type="password"
+                  value={grantPass}
+                  onChange={(e) => setGrantPass(e.target.value)}
+                />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="inherit"
+                  disabled={grantBusy || !grantUser.trim() || !grantPass || !form.oidcIssuer.trim()}
+                  startIcon={grantBusy ? <CircularProgress size={13} /> : <KeyRoundedIcon />}
+                  onClick={async () => {
+                    setGrantBusy(true);
+                    setError(null);
+                    try {
+                      const res = await api.oidcToken({
+                        issuer: form.oidcIssuer.trim(),
+                        clientId: grantClient.trim() || undefined,
+                        username: grantUser.trim(),
+                        password: grantPass,
+                      });
+                      set('token', res.access_token);
+                      toast('token fetched from the issuer');
+                    } catch (err) {
+                      setError((err as Error).message);
+                    } finally {
+                      setGrantBusy(false);
+                    }
+                  }}
+                >
+                  fetch
+                </Button>
+              </Stack>
+              <Typography sx={{ fontSize: 10.5, color: 'text.secondary', mt: 0.75, lineHeight: 1.5 }}>
+                Uses the issuer above (e.g. an iam-lab Keycloak realm with a direct-access-grants client). The token
+                lands in the field above and is stored by the bridge like a pasted one.
+              </Typography>
+            </Box>
+          ) : null}
+
+          {form.mode === 'oidc' ? (
+            <EntraGatewayFetch
+              audience={form.oidcAudience}
+              scopes={form.oidcScopes}
+              onToken={(t) => {
+                set('token', t);
+                toast('Entra token fetched — stored like a pasted one');
+              }}
+              onError={(m) => setError(m || null)}
             />
           ) : null}
 

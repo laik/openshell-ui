@@ -1,4 +1,5 @@
-import { Box, Button, Chip, Divider, Grid, IconButton, Stack, Typography } from '@mui/material';
+import { useState } from 'react';
+import { Box, Button, Chip, Divider, Grid, IconButton, Stack, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import GroupsRoundedIcon from '@mui/icons-material/GroupsRounded';
@@ -11,7 +12,15 @@ import { api } from '../api/client';
 import { useAsync } from '../hooks';
 import { useShell } from '../Shell';
 import { MONO } from '../theme';
-import { ErrorNote, LoadingBlock, Mono, Panel, PhaseChip, SectionLabel } from '../components/ui';
+import {
+  ErrorNote,
+  LoadingBlock,
+  Mono,
+  PageHeader,
+  Panel,
+  PhaseChip,
+  SectionLabel,
+} from '../components/ui';
 
 export default function Access() {
   const { scope, gateway, workspace } = useShell();
@@ -25,12 +34,12 @@ export default function Access() {
 
   return (
     <Stack spacing={2.5}>
-      <Box>
-        <Typography variant="h2">Identity</Typography>
-        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', fontFamily: MONO, mt: 0.4 }}>
-          who you are, which gateway answers this console, and the workspaces you can reach
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Identity"
+        description="Who you are, which gateway answers this console, and the workspaces you can reach."
+      />
+
+      <SessionPanel />
 
       <Grid container spacing={2.5}>
         <Grid size={{ xs: 12, md: 5 }}>
@@ -53,11 +62,11 @@ export default function Access() {
                     sx={{
                       width: 44,
                       height: 44,
-                      borderRadius: 3,
+                      borderRadius: 0.5,
                       display: 'grid',
                       placeItems: 'center',
-                      background: 'linear-gradient(135deg,#7c5cff,#22d3ee)',
-                      color: '#07080c',
+                      bgcolor: '#76b900',
+                      color: '#000000',
                     }}
                   >
                     <PersonRoundedIcon />
@@ -164,7 +173,7 @@ export default function Access() {
                         borderRadius: 2,
                         border: '1px solid',
                         borderColor: current ? 'primary.main' : 'divider',
-                        bgcolor: current ? 'rgba(124,92,255,0.07)' : 'transparent',
+                        bgcolor: current ? 'rgba(118,185,0,0.07)' : 'transparent',
                       }}
                     >
                       <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
@@ -181,8 +190,8 @@ export default function Access() {
                 );
               })}
             </Grid>
-            <Typography sx={{ mt: 1.5, fontSize: 11.5, color: 'text.secondary', fontFamily: MONO }}>
-              switch scope from the header — every page re-reads against the selected gateway and workspace
+            <Typography sx={{ mt: 1.5, fontSize: 12, color: 'text.secondary', lineHeight: 1.6 }}>
+              Switch scope from the header — every page re-reads against the selected gateway and workspace.
             </Typography>
           </Panel>
         </Grid>
@@ -191,10 +200,83 @@ export default function Access() {
   );
 }
 
+/**
+ * The console session (IdP sign-in), as opposed to the gateway principal below:
+ * granted roles/groups arrive as claims after login; when several roles are
+ * granted the operator chooses which one this session operates with.
+ */
+function SessionPanel() {
+  const me = useAsync(() => api.authMe(), { deps: [] });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const u = me.data?.user;
+  if (!u) return null;
+
+  const switchRole = async (role: string) => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.authRole(role);
+      window.dispatchEvent(new Event('openshell:session-changed'));
+      me.reload();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <Panel>
+      <SectionLabel>console session · post-login identity</SectionLabel>
+      <Grid container spacing={2.5}>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Stack spacing={1}>
+            <KV label="name" value={u.name} />
+            <KV label="issuer" value={u.issuer} />
+            <KV label="granted roles" value={u.roles.join(', ') || '—'} />
+            <KV label="groups" value={u.groups.join(', ') || '— (provider emits none)'} />
+          </Stack>
+        </Grid>
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Stack spacing={1}>
+            <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>
+              operate as (session role)
+            </Typography>
+            {u.roles.length > 1 ? (
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={u.activeRole}
+                disabled={busy}
+                onChange={(_e, v) => v && switchRole(v)}
+              >
+                {u.roles.map((r) => (
+                  <ToggleButton key={r} value={r} sx={{ fontFamily: MONO, fontSize: 12 }}>
+                    {r}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+            ) : (
+              <Chip size="small" label={u.activeRole ?? 'no role'} variant="outlined" sx={{ fontFamily: MONO, fontSize: 11, alignSelf: 'flex-start' }} />
+            )}
+            <Typography sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.6 }}>
+              Roles and groups are granted by your IdP at sign-in (realm roles / Entra app roles / group claims).
+              Switching changes what this session may do; <Mono>admin</Mono> unlocks gateways, policies and deletions.
+            </Typography>
+            {error ? (
+              <Typography role="alert" sx={{ fontSize: 12, color: 'error.main' }}>{error}</Typography>
+            ) : null}
+          </Stack>
+        </Grid>
+      </Grid>
+    </Panel>
+  );
+}
+
 function KV({ label, value }: { label: string; value: string }) {
   return (
     <Stack direction="row" spacing={2}>
-      <Typography sx={{ width: 100, flexShrink: 0, fontSize: 10.5, color: 'text.secondary', fontFamily: MONO }}>
+      <Typography sx={{ width: 104, flexShrink: 0, fontSize: 11.5, color: 'text.secondary', lineHeight: 1.6 }}>
         {label}
       </Typography>
       <Mono sx={{ fontSize: 12.2, wordBreak: 'break-all' }}>{value}</Mono>

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Autocomplete,
   Box,
@@ -48,6 +48,7 @@ import {
   ErrorNote,
   LoadingBlock,
   Mono,
+  PageHeader,
   Panel,
   SectionLabel,
 } from '../components/ui';
@@ -81,38 +82,35 @@ export default function Profiles() {
 
   return (
     <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ alignItems: { md: 'flex-end' } }}>
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="h2">Profiles</Typography>
-          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', fontFamily: MONO, mt: 0.4 }}>
-            provider profiles declare endpoints and credential handles · provider configs bind real credentials inside
-            the gateway
-          </Typography>
-        </Box>
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-          <Button
-            size="small"
-            variant="outlined"
-            color="inherit"
-            startIcon={<RefreshRoundedIcon />}
-            onClick={() => {
-              profiles.reload();
-              providers.reload();
-            }}
-          >
-            refresh
-          </Button>
-          {tab === 'profiles' ? (
-            <Button variant="contained" startIcon={<UploadFileRoundedIcon />} onClick={() => setImportOpen(true)}>
-              import profile
+      <PageHeader
+        title="Profiles"
+        description="Provider profiles declare endpoints and credential handles. Provider configs bind real credentials inside the gateway."
+        actions={
+          <>
+            <Button
+              size="small"
+              variant="outlined"
+              color="inherit"
+              startIcon={<RefreshRoundedIcon />}
+              onClick={() => {
+                profiles.reload();
+                providers.reload();
+              }}
+            >
+              refresh
             </Button>
-          ) : (
-            <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setCreateOpen(true)}>
-              new provider
-            </Button>
-          )}
-        </Stack>
-      </Stack>
+            {tab === 'profiles' ? (
+              <Button variant="contained" startIcon={<UploadFileRoundedIcon />} onClick={() => setImportOpen(true)}>
+                import profile
+              </Button>
+            ) : (
+              <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setCreateOpen(true)}>
+                new provider
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <Panel dense>
         <Tabs value={tab} onChange={(_, value: 'profiles' | 'credentials') => setTab(value)}>
@@ -521,16 +519,35 @@ function ImportProfileDialog({
   const [global, setGlobal] = useState(false);
   const [lint, setLint] = useState(true);
   const [output, setOutput] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [existsId, setExistsId] = useState<string | null>(null);
   const [busy, setBusy] = useState<'lint' | 'import' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState('profile.yaml');
 
   const body = () => ({ content: url ? undefined : content, url: url.trim() || undefined, fileName, global });
+  const contentId = useMemo(() => /^id:\s*([^\s#]+)/m.exec(content)?.[1] ?? null, [content]);
+
+  const runUpdate = async () => {
+    const id = existsId ?? contentId;
+    if (!id) return;
+    setBusy('import');
+    try {
+      const out = await api.updateProfile(id, body(), scope);
+      toast(`profile ${id} updated`, { detail: out.trim().slice(0, 180) });
+      setExistsId(null);
+      setContent('');
+      setUrl('');
+      onDone();
+    } catch (err) {
+      toast('profile update failed', { kind: 'err', detail: (err as Error).message });
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const run = async (action: 'lint' | 'import') => {
     setBusy(action);
-    setError(null);
+    setExistsId(null);
     setOutput('');
     try {
       if (action === 'lint') {
@@ -548,7 +565,10 @@ function ImportProfileDialog({
         onDone();
       }
     } catch (err) {
-      setError((err as Error).message);
+      const msg = (err as Error).message;
+      toast(action === 'lint' ? 'lint failed' : 'import failed', { kind: 'err', detail: msg });
+      const m = /profile '([^']+)' already exists/.exec(msg);
+      if (action === 'import') setExistsId(m?.[1] ?? contentId);
     } finally {
       setBusy(null);
     }
@@ -558,8 +578,8 @@ function ImportProfileDialog({
     <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ pb: 0.5 }}>
         Import provider profile
-        <Typography sx={{ fontSize: 12, color: 'text.secondary', fontFamily: MONO, mt: 0.5 }}>
-          one YAML or JSON profile · lint is run before import when enabled
+        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.55, mt: 0.6 }}>
+          One YAML or JSON profile. Lint runs before import when enabled.
         </Typography>
       </DialogTitle>
       <DialogContent>
@@ -622,7 +642,20 @@ function ImportProfileDialog({
             />
           </Stack>
           {output ? <CodeBlock value={output} maxHeight={160} /> : null}
-          {error ? <ErrorNote message={error} /> : null}
+          {existsId ? (
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: 'center', p: 1, borderRadius: 1.5, border: '1px solid', borderColor: 'warning.main' }}
+            >
+              <Typography sx={{ fontSize: 12, flex: 1, lineHeight: 1.5 }}>
+                Profile <Mono>{existsId}</Mono> already exists in this scope — import refuses to overwrite it.
+              </Typography>
+              <Button size="small" variant="outlined" color="inherit" disabled={Boolean(busy)} onClick={runUpdate}>
+                update it instead
+              </Button>
+            </Stack>
+          ) : null}
         </Stack>
       </DialogContent>
       <DialogActions sx={{ p: 2, pt: 1 }}>
@@ -681,9 +714,42 @@ function CreateProviderDialog({
   const [runtimeCredentials, setRuntimeCredentials] = useState(false);
   const [globalProfile, setGlobalProfile] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [profileInfo, setProfileInfo] = useState<ProviderProfile | null>(null);
+
+  useEffect(() => {
+    const t = type.trim();
+    if (!t || !types.includes(t)) {
+      setProfileInfo(null);
+      return;
+    }
+    let alive = true;
+    api
+      .profileDetail(t, scope)
+      .then((prof) => {
+        if (alive) setProfileInfo(prof);
+      })
+      .catch(() => {
+        if (alive) setProfileInfo(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [type, scope.gateway, scope.workspace]);
+
+  const declaredCreds = (profileInfo?.credentials ?? []) as ProfileCredential[];
+  const allowedKeys = declaredCreds.flatMap((c) => c.env_vars ?? (c.env_var ? [c.env_var] : []));
+  const credKeys = credentials
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => l.split('=')[0].trim());
+  const unknownKeys = profileInfo && allowedKeys.length ? credKeys.filter((k) => !allowedKeys.includes(k)) : [];
+  const missingRequired = declaredCreds.filter(
+    (c) => c.required && !(c.env_vars ?? []).some((k) => credKeys.includes(k)),
+  );
 
   const reset = () => {
+    setProfileInfo(null);
     setName('');
     setType('');
     setCredentials('');
@@ -694,7 +760,6 @@ function CreateProviderDialog({
     setFromGcloudAdc(false);
     setRuntimeCredentials(false);
     setGlobalProfile(false);
-    setError(null);
   };
 
   return (
@@ -707,8 +772,8 @@ function CreateProviderDialog({
     >
       <DialogTitle sx={{ pb: 0.5 }}>
         New provider config
-        <Typography sx={{ fontSize: 12, color: 'text.secondary', fontFamily: MONO, mt: 0.5 }}>
-          credentials are sent to the gateway and never stored in this browser
+        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.55, mt: 0.6 }}>
+          Credentials are sent to the gateway and never stored in this browser.
         </Typography>
       </DialogTitle>
       <DialogContent>
@@ -745,6 +810,43 @@ function CreateProviderDialog({
             helperText="one per line: KEY=VALUE, or KEY to read from the environment on the bridge host"
             slotProps={{ htmlInput: { spellCheck: false, style: { fontFamily: MONO, fontSize: 12 } } }}
           />
+          {profileInfo ? (
+            <Stack spacing={0.75} sx={{ textAlign: 'left' }}>
+              <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5, alignItems: 'center' }}>
+                <Typography
+                  sx={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 660, color: 'text.secondary' }}
+                >
+                  {type} declares
+                </Typography>
+                {allowedKeys.map((k) => (
+                  <Chip key={k} size="small" label={k} variant="outlined" sx={{ fontFamily: MONO, fontSize: 10 }} />
+                ))}
+                <Button
+                  size="small"
+                  color="inherit"
+                  onClick={() => setCredentials(allowedKeys.map((k) => `${k}=`).join('\n'))}
+                >
+                  insert template
+                </Button>
+              </Stack>
+              {unknownKeys.length ? (
+                <Typography sx={{ fontSize: 11.5, color: 'error.main', lineHeight: 1.5 }}>
+                  unknown credential keys: {unknownKeys.join(', ')} — the gateway only accepts the keys declared
+                  by the profile.
+                </Typography>
+              ) : null}
+              {missingRequired.length ? (
+                <Typography sx={{ fontSize: 11.5, color: 'warning.main', lineHeight: 1.5 }}>
+                  required credentials not set yet:{' '}
+                  {missingRequired.map((c) => (c.env_vars ?? []).join('/')).join(', ')}
+                </Typography>
+              ) : null}
+              <Typography sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.5 }}>
+                {String(profileInfo.description ?? '')} · {(profileInfo.endpoints ?? []).length} endpoints ·{' '}
+                {((profileInfo.binaries ?? []) as unknown[]).length} binaries
+              </Typography>
+            </Stack>
+          ) : null}
           <TextField
             fullWidth
             multiline
@@ -785,7 +887,6 @@ function CreateProviderDialog({
               />
             ))}
           </Box>
-          {error ? <ErrorNote message={error} /> : null}
         </Stack>
       </DialogContent>
       <DialogActions sx={{ p: 2, pt: 1 }}>
@@ -794,11 +895,10 @@ function CreateProviderDialog({
         </Button>
         <Button
           variant="contained"
-          disabled={busy || !name.trim() || !type.trim()}
+          disabled={busy || !name.trim() || !type.trim() || unknownKeys.length > 0}
           startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <AddRoundedIcon />}
           onClick={async () => {
             setBusy(true);
-            setError(null);
             try {
               const out = await api.createProvider(
                 {
@@ -818,7 +918,7 @@ function CreateProviderDialog({
               toast('provider created', { detail: out.trim().slice(0, 180) });
               onDone();
             } catch (err) {
-              setError((err as Error).message);
+              toast('create failed', { kind: 'err', detail: (err as Error).message });
             } finally {
               setBusy(false);
             }
@@ -846,7 +946,6 @@ function EditProviderDialog({
   const [fromExisting, setFromExisting] = useState(false);
   const [fromOidcToken, setFromOidcToken] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   return (
     <Dialog
@@ -861,15 +960,15 @@ function EditProviderDialog({
             setConfig('');
             setFromExisting(false);
             setFromOidcToken(false);
-            setError(null);
           },
         },
       }}
     >
       <DialogTitle sx={{ pb: 0.5 }}>
         Update {provider?.name}
-        <Typography sx={{ fontSize: 12, color: 'text.secondary', fontFamily: MONO, mt: 0.5 }}>
-          type {provider?.type} · credential keys {(provider?.credential_keys ?? []).join(', ') || 'none'}
+        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.55, mt: 0.6 }}>
+          type <Mono>{provider?.type}</Mono> · credential keys{' '}
+          <Mono>{(provider?.credential_keys ?? []).join(', ') || 'none'}</Mono>
         </Typography>
       </DialogTitle>
       <DialogContent>
@@ -906,7 +1005,6 @@ function EditProviderDialog({
               label={<Typography sx={{ fontSize: 12 }}>use active OIDC token</Typography>}
             />
           </Box>
-          {error ? <ErrorNote message={error} /> : null}
         </Stack>
       </DialogContent>
       <DialogActions sx={{ p: 2, pt: 1 }}>
@@ -920,7 +1018,6 @@ function EditProviderDialog({
           onClick={async () => {
             if (!provider) return;
             setBusy(true);
-            setError(null);
             try {
               const out = await api.updateProvider(
                 provider.name,
@@ -935,7 +1032,7 @@ function EditProviderDialog({
               toast(`updated provider ${provider.name}`, { detail: out.trim().slice(0, 180) });
               onDone();
             } catch (err) {
-              setError((err as Error).message);
+              toast('update failed', { kind: 'err', detail: (err as Error).message });
             } finally {
               setBusy(false);
             }

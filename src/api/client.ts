@@ -1,6 +1,9 @@
 import type {
   AllRules,
+  AuthConfig,
+  AuthUser,
   Context,
+  EntraTenant,
   ExecResult,
   GatewayAddResult,
   GatewayHealth,
@@ -8,6 +11,7 @@ import type {
   GatewayRecord,
   GatewayTokenResult,
   LogLine,
+  PolicyUpdateBody,
   PortForward,
   ProviderList,
   ProviderProfile,
@@ -15,6 +19,7 @@ import type {
   RuleHistoryCollection,
   RunResult,
   Sandbox,
+  StartupCommand,
   SandboxTemplate,
   ServiceEndpoint,
   Workspace,
@@ -96,6 +101,38 @@ export interface CreateSandboxBody {
 }
 
 export const api = {
+  authConfig: () => get<AuthConfig>('/api/auth/config'),
+  authMe: () => get<{ user: AuthUser | null; mode: 'local' | 'oidc' }>('/api/auth/me'),
+  oidcStart: (issuer: string, scopes?: string) =>
+    post<{ url: string; state: string }>('/api/auth/oidc/start', { issuer, scopes }),
+  authLogout: () => post<{ ok: boolean }>('/api/auth/logout'),
+  authRole: (role: string) => post<{ user: AuthUser }>('/api/auth/role', { role }),
+  authLocal: (token: string) => post<{ user: AuthUser }>('/api/auth/local', { token }),
+  entraStart: (opts?: { scopes?: string; purpose?: 'session' | 'gateway-token' }) =>
+    post<{
+      flow: string;
+      user_code: string;
+      verification_uri: string;
+      verification_uri_complete?: string;
+      expires_in: number;
+      interval: number;
+    }>('/api/auth/entra/start', opts),
+  entraDiscover: () => post<{ url: string; state: string }>('/api/auth/entra/discover'),
+  entraTenants: (flow: string) =>
+    get<{ tenants: EntraTenant[] }>(`/api/auth/entra/tenants?flow=${encodeURIComponent(flow)}`),
+  entraSelect: (flow: string, tenantId: string) =>
+    post<{ user: AuthUser }>('/api/auth/entra/select', { flow, tenantId }),
+  entraPoll: (flow: string) =>
+    post<{
+      status: 'pending' | 'slow_down' | 'ok' | 'expired' | 'denied' | 'error';
+      message?: string;
+      user?: AuthUser;
+      access_token?: string;
+      expires_in?: number;
+    }>('/api/auth/entra/poll', { flow }),
+  oidcToken: (body: { issuer: string; clientId?: string; username: string; password: string }) =>
+    post<{ access_token: string; expires_in: number }>('/api/oidc/token', body),
+
   context: (scope: Scope = {}) => get<Context>(`/api/context${scopeParams(scope)}`),
 
   sandboxes: (scope: Scope, all = false) =>
@@ -190,6 +227,9 @@ export const api = {
   lintProfile: (body: { content?: string; url?: string; fileName?: string; global?: boolean }, scope: Scope) =>
     post<string>(`/api/profiles/lint${scopeParams(scope)}`, body),
 
+  updateProfile: (id: string, body: { content?: string; url?: string; fileName?: string; global?: boolean }, scope: Scope) =>
+    post<string>(`/api/profiles/${encodeURIComponent(id)}/update${scopeParams(scope)}`, body),
+
   deleteProfile: (id: string, scope: Scope, global = false) =>
     del<string>(`/api/profiles/${encodeURIComponent(id)}${scopeParams(scope, { global: global ? 1 : undefined })}`),
 
@@ -255,6 +295,21 @@ export const api = {
   clearRules: (name: string, scope: Scope) =>
     del<string>(`/api/sandboxes/${encodeURIComponent(name)}/rules${scopeParams(scope)}`),
 
+  updatePolicy: (name: string, body: PolicyUpdateBody, scope: Scope) =>
+    post<{ output: string; args: string[] }>(
+      `/api/sandboxes/${encodeURIComponent(name)}/policy/update${scopeParams(scope)}`,
+      body,
+    ),
+
+  setPolicy: (name: string, yaml: string, scope: Scope, wait = true) =>
+    post<{ output: string; args: string[] }>(
+      `/api/sandboxes/${encodeURIComponent(name)}/policy/set${scopeParams(scope)}`,
+      { yaml, wait },
+    ),
+
+  startupCommand: (name: string, scope: Scope) =>
+    get<StartupCommand>(`/api/sandboxes/${encodeURIComponent(name)}/startup${scopeParams(scope)}`),
+
   // --- quick run ---
   run: (name: string, command: string, scope: Scope, start = true) =>
     post<RunResult>(`/api/sandboxes/${encodeURIComponent(name)}/run${scopeParams(scope)}`, {
@@ -266,6 +321,12 @@ export const api = {
 
   settingsText: (name: string, scope: Scope) =>
     get<string>(`/api/settings/${encodeURIComponent(name)}${scopeParams(scope)}`),
+
+  setSetting: (name: string, key: string, value: string, scope: Scope) =>
+    post<string>(`/api/sandboxes/${encodeURIComponent(name)}/settings${scopeParams(scope)}`, { key, value }),
+
+  deleteSetting: (name: string, key: string, scope: Scope) =>
+    del<string>(`/api/sandboxes/${encodeURIComponent(name)}/settings/${encodeURIComponent(key)}${scopeParams(scope)}`),
 
   gateways: {
     // Registration commands act on the local CLI config, not on a scoped gateway,

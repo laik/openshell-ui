@@ -49,21 +49,20 @@ function Metric({
     <Box>
       <Typography
         sx={{
-          fontSize: 10,
-          letterSpacing: '0.16em',
+          fontSize: 10.5,
+          letterSpacing: '0.075em',
           textTransform: 'uppercase',
           color: 'text.secondary',
-          fontFamily: MONO,
-          fontWeight: 700,
+          fontWeight: 650,
         }}
       >
         {label}
       </Typography>
       <Typography
         sx={{
-          fontSize: 30,
-          fontWeight: 660,
-          letterSpacing: '-0.03em',
+          fontSize: 29,
+          fontWeight: 690,
+          letterSpacing: '-0.026em',
           lineHeight: 1.15,
           color: color ?? 'text.primary',
           fontVariantNumeric: 'tabular-nums',
@@ -72,7 +71,7 @@ function Metric({
         {value}
       </Typography>
       {sub ? (
-        <Typography sx={{ fontSize: 11.5, color: 'text.secondary', fontFamily: MONO }}>{sub}</Typography>
+        <Typography sx={{ fontSize: 11.5, color: 'text.secondary', lineHeight: 1.5 }}>{sub}</Typography>
       ) : null}
     </Box>
   );
@@ -261,7 +260,7 @@ export default function Overview() {
                           borderRadius: 2,
                           border: '1px solid',
                           borderColor: 'divider',
-                          '&:hover': { borderColor: 'primary.main', bgcolor: 'rgba(124,92,255,0.06)' },
+                          '&:hover': { borderColor: 'primary.main', bgcolor: 'rgba(118,185,0,0.06)' },
                         }}
                       >
                         <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
@@ -344,7 +343,7 @@ export default function Overview() {
                     borderRadius: 2,
                     border: '1px solid',
                     borderColor: g.active ? 'primary.main' : 'divider',
-                    bgcolor: g.active ? 'rgba(124,92,255,0.08)' : 'transparent',
+                    bgcolor: g.active ? 'rgba(118,185,0,0.08)' : 'transparent',
                   }}
                 >
                   <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>

@@ -56,7 +56,7 @@ export const LogViewer = memo(function LogViewer({ lines }: { lines: LogLine[] }
         <Box sx={{ color: 'text.secondary', flexShrink: 0, fontSize: 11 }}>{shortTimeTs(l)}</Box>
         <Box
           sx={{
-            color: l.source === 'gateway' ? '#a78bfa' : '#22d3ee',
+            color: l.source === 'gateway' ? (dark ? '#76b900' : '#4c7a00') : dark ? '#6eb4ff' : '#1a66c9',
             flexShrink: 0,
             fontSize: 10.5,
             width: 56,

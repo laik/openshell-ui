@@ -10,7 +10,18 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "start": "node server/index.ts"
+    "start": "node server/index.ts",
+    "dev:server:oidc": "OPENSHELL_UI_AUTH=oidc OPENSHELL_UI_OIDC_ISSUERS=http://localhost:8080/realms/tenant-a,http://localhost:8080/realms/tenant-b node server/index.ts",
+    "dev:oidc": "concurrently -n server,web -c magenta,cyan \"npm:dev:server:oidc\" \"npm:dev:web\"",
+    "dev:server:entra": "OPENSHELL_UI_AUTH=oidc node server/index.ts",
+    "dev:entra": "concurrently -n server,web -c magenta,cyan \"npm:dev:server:entra\" \"npm:dev:web\"",
+    "dev:server:all": "OPENSHELL_UI_AUTH=oidc OPENSHELL_UI_OIDC_ISSUERS=\"Lab realm A=http://localhost:8080/realms/tenant-a,Lab realm B=http://localhost:8080/realms/tenant-b\" node server/index.ts",
+    "dev:all": "concurrently -n server,web -c magenta,cyan \"npm:dev:server:all\" \"npm:dev:web\"",
+    "demo:all": "npm run dev:all",
+    "test:sweep": "node scripts/sweep.mjs",
+    "demo": "npm run dev",
+    "demo:oidc": "npm run dev:oidc",
+    "demo:entra": "npm run dev:entra"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -25,7 +36,8 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.5",
-    "ws": "^8.22.2"
+    "ws": "^8.22.2",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
@@ -36,5 +48,29 @@
     "concurrently": "^10.0.7",
     "typescript": "5.9",
     "vite": "^8.3.7"
+  },
+  "description": "Local web console for the OpenShell sandbox runtime: multi-gateway management, sandbox lifecycle, live PTY, network-rule approvals, dynamic policy editing, provider profiles, and optional OIDC sign-in.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/laik/openshell-ui.git"
+  },
+  "homepage": "https://github.com/laik/openshell-ui#readme",
+  "bugs": {
+    "url": "https://github.com/laik/openshell-ui/issues"
+  },
+  "keywords": [
+    "openshell",
+    "sandbox",
+    "console",
+    "gateway",
+    "oidc",
+    "keycloak",
+    "xterm",
+    "mui",
+    "react"
+  ],
+  "engines": {
+    "node": ">=22.6"
   }
 }

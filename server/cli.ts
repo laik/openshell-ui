@@ -12,14 +12,16 @@ export const BIN = process.env.OPENSHELL_BIN ?? 'openshell';
 export class CliError extends Error {
   readonly exitCode: number | null;
   readonly stderr: string;
+  readonly stdout: string;
   readonly args: string[];
 
-  constructor(message: string, args: string[], exitCode: number | null, stderr: string) {
+  constructor(message: string, args: string[], exitCode: number | null, stderr: string, stdout = '') {
     super(message);
     this.name = 'CliError';
     this.args = args;
     this.exitCode = exitCode;
     this.stderr = stderr;
+    this.stdout = stdout;
   }
 }
 
@@ -86,7 +88,7 @@ export function runCli(args: string[], opts: RunOptions = {}): Promise<string> {
           }
           const timedOut = /SIGTERM|ETIMEDOUT/.test(String(err.message));
           const text = cleanError(stderr) || (timedOut ? 'command timed out' : String(err.message));
-          reject(new CliError(text, argv, typeof code === 'number' ? code : 1, stripAnsi(stderr)));
+          reject(new CliError(text, argv, typeof code === 'number' ? code : 1, stripAnsi(stderr), stripAnsi(stdout)));
           return;
         }
         resolve(stdout);

@@ -4,6 +4,8 @@ export interface PhaseStyle {
   /** Human label. */
   label: string;
   color: string;
+  /** Readable-on-white variant for light mode text. */
+  colorLight?: string;
   /** Whether the phase implies live compute we pay for. */
   live: boolean;
   /** Whether the state is changing right now. */
@@ -11,24 +13,24 @@ export interface PhaseStyle {
 }
 
 const PHASES: Record<string, PhaseStyle> = {
-  Ready: { label: 'Ready', color: '#35d29a', live: true, transient: false },
-  Running: { label: 'Running', color: '#35d29a', live: true, transient: false },
-  Pending: { label: 'Pending', color: '#f2a53c', live: true, transient: true },
-  Provisioning: { label: 'Provisioning', color: '#f2a53c', live: true, transient: true },
-  Creating: { label: 'Creating', color: '#f2a53c', live: true, transient: true },
-  Suspended: { label: 'Suspended', color: '#a78bfa', live: false, transient: false },
-  Stopped: { label: 'Stopped', color: '#5aa9ff', live: false, transient: false },
-  Completed: { label: 'Completed', color: '#98a3ba', live: false, transient: false },
-  Failed: { label: 'Failed', color: '#ff5f6d', live: false, transient: false },
-  Error: { label: 'Error', color: '#ff5f6d', live: false, transient: false },
-  Terminating: { label: 'Terminating', color: '#f2a53c', live: true, transient: true },
-  Deleting: { label: 'Deleting', color: '#f2a53c', live: true, transient: true },
-  Unknown: { label: 'Unknown', color: '#68727f', live: false, transient: false },
+  Ready: { label: 'Ready', color: '#76b900', colorLight: '#4c7a00', live: true, transient: false },
+  Running: { label: 'Running', color: '#76b900', colorLight: '#4c7a00', live: true, transient: false },
+  Pending: { label: 'Pending', color: '#ffb800', colorLight: '#9a6b00', live: true, transient: true },
+  Provisioning: { label: 'Provisioning', color: '#ffb800', colorLight: '#9a6b00', live: true, transient: true },
+  Creating: { label: 'Creating', color: '#ffb800', colorLight: '#9a6b00', live: true, transient: true },
+  Suspended: { label: 'Suspended', color: '#b8b8b8', colorLight: '#545454', live: false, transient: false },
+  Stopped: { label: 'Stopped', color: '#6eb4ff', colorLight: '#1a66c9', live: false, transient: false },
+  Completed: { label: 'Completed', color: '#8a8a8a', colorLight: '#545454', live: false, transient: false },
+  Failed: { label: 'Failed', color: '#ff5449', colorLight: '#d0342c', live: false, transient: false },
+  Error: { label: 'Error', color: '#ff5449', colorLight: '#d0342c', live: false, transient: false },
+  Terminating: { label: 'Terminating', color: '#ffb800', colorLight: '#9a6b00', live: true, transient: true },
+  Deleting: { label: 'Deleting', color: '#ffb800', colorLight: '#9a6b00', live: true, transient: true },
+  Unknown: { label: 'Unknown', color: '#767676', colorLight: '#767676', live: false, transient: false },
 };
 
 export function phaseStyle(phase: Phase | undefined | null): PhaseStyle {
   const key = String(phase ?? 'Unknown');
-  return PHASES[key] ?? { label: key || 'Unknown', color: '#68727f', live: false, transient: false };
+  return PHASES[key] ?? { label: key || 'Unknown', color: '#767676', live: false, transient: false };
 }
 
 export function isLive(s: Sandbox): boolean {

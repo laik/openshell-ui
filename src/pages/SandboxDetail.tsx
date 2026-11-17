@@ -1,10 +1,16 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Breadcrumbs,
   Button,
+  Checkbox,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
+  FormControlLabel,
   Grid,
   IconButton,
   Link,
@@ -33,7 +39,11 @@ import TerminalRoundedIcon from '@mui/icons-material/TerminalRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import PlayCircleRoundedIcon from '@mui/icons-material/PlayCircleRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
+import AddRoundedIcon from '@mui/icons-material/AddRounded';
+import PlaylistAddRoundedIcon from '@mui/icons-material/PlaylistAddRounded';
 import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+
+import { stringify as yamlStringify } from 'yaml';
 
 import { api } from '../api/client';
 import { useAsync, useNow } from '../hooks';
@@ -242,12 +252,22 @@ export default function SandboxDetail() {
 
         <Box sx={{ p: { xs: 1.75, md: 2.5 } }}>
           {tab === 'overview' ? (
-            <OverviewTab sandbox={sandbox} ageSeconds={ageSeconds} now={now} scope={scope} />
+            <OverviewTab sandbox={sandbox} ageSeconds={ageSeconds} now={now} scope={scope} toast={toast} />
           ) : null}
           {tab === 'exec' ? <ExecTab name={sandbox.name} scope={scope} toast={toast} /> : null}
-          {tab === 'terminal' ? <TerminalPanel name={sandbox.name} phase={sandbox.phase} /> : null}
+          {tab === 'terminal' ? (
+            <TerminalPanel name={sandbox.name} phase={sandbox.phase} scope={scope} />
+          ) : null}
           {tab === 'logs' ? <LogsTab name={sandbox.name} scope={scope} /> : null}
-          {tab === 'policy' ? <PolicyTab name={sandbox.name} sandbox={sandbox} scope={scope} /> : null}
+          {tab === 'policy' ? (
+            <PolicyTab
+              name={sandbox.name}
+              sandbox={sandbox}
+              scope={scope}
+              toast={toast}
+              onChanged={() => state.reload()}
+            />
+          ) : null}
           {tab === 'network' ? (
             <NetworkTab name={sandbox.name} scope={scope} services={state.data?.services?.services ?? []} toast={toast} />
           ) : null}
@@ -319,11 +339,13 @@ function OverviewTab({
   ageSeconds,
   now,
   scope,
+  toast,
 }: {
   sandbox: Sandbox;
   ageSeconds: number;
   now: number;
   scope: { gateway?: string; workspace?: string };
+  toast: (t: string, o?: { kind?: 'ok' | 'err' | 'info'; detail?: string }) => void;
 }) {
   const conditions = sandbox.conditions ?? [];
   const timeline = useMemo(() => {
@@ -339,6 +361,25 @@ function OverviewTab({
   }, [sandbox]);
 
   const ssh = useAsync(() => api.sshConfig(sandbox.name, scope), { deps: [sandbox.name] });
+  const startup = useAsync(() => api.startupCommand(sandbox.name, scope), {
+    deps: [sandbox.name, scope.gateway, scope.workspace, sandbox.phase],
+  });
+  const settings = useAsync(() => api.settingsText(sandbox.name, scope), {
+    deps: [sandbox.name, scope.gateway, scope.workspace],
+  });
+  const [settingKey, setSettingKey] = useState('agent_policy_proposals_enabled');
+  const [settingValue, setSettingValue] = useState('true');
+  const settingRows = useMemo(() => {
+    const rows: Array<{ key: string; value: string; source: string }> = [];
+    for (const line of String(settings.data ?? '').split('\n')) {
+      const m = /^\s+([a-z_]+) = (.+)$/.exec(line);
+      if (!m) continue;
+      const raw = m[2].trim();
+      const src = /\(([^)]*)\)\s*$/.exec(raw)?.[1] ?? '';
+      rows.push({ key: m[1], value: raw.replace(/\s*\([^)]*\)\s*$/, ''), source: src });
+    }
+    return rows;
+  }, [settings.data]);
 
   return (
     <Grid container spacing={2.5}>
@@ -476,27 +517,197 @@ function OverviewTab({
           </Panel>
 
           <Panel>
-            <SectionLabel>labels and annotations</SectionLabel>
+            <SectionLabel
+              right={
+                <Mono dim sx={{ fontSize: 10.5 }}>
+                  {Object.keys(sandbox.labels ?? {}).length} labels ·{' '}
+                  {Object.keys(sandbox.annotations ?? {}).length} annotations
+                </Mono>
+              }
+            >
+              labels and annotations
+            </SectionLabel>
             {Object.keys(sandbox.labels ?? {}).length === 0 &&
             Object.keys(sandbox.annotations ?? {}).length === 0 ? (
               <Mono dim>none</Mono>
             ) : (
-              <Stack spacing={0.5}>
-                {Object.entries(sandbox.labels ?? {}).map(([k, v]) => (
-                  <Chip key={`l${k}`} label={`${k}=${v}`} size="small" variant="outlined" sx={{ fontFamily: MONO }} />
-                ))}
-                {Object.entries(sandbox.annotations ?? {}).map(([k, v]) => (
-                  <Chip
-                    key={`a${k}`}
-                    label={`${k}=${v}`}
-                    size="small"
-                    color="secondary"
-                    variant="outlined"
-                    sx={{ fontFamily: MONO }}
-                  />
-                ))}
+              <Stack spacing={1.25} sx={{ alignItems: 'stretch', textAlign: 'left' }}>
+                {(
+                  [
+                    ['labels', sandbox.labels ?? {}, 'primary.main'],
+                    ['annotations', sandbox.annotations ?? {}, 'secondary.main'],
+                  ] as Array<[string, Record<string, string>, string]>
+                )
+                  .filter(([, entries]) => Object.keys(entries).length > 0)
+                  .map(([group, entries, color]) => (
+                    <Stack key={group} spacing={0.6} sx={{ alignItems: 'flex-start', width: '100%' }}>
+                      <Typography
+                        sx={{
+                          fontSize: 10,
+                          letterSpacing: '0.08em',
+                          textTransform: 'uppercase',
+                          fontWeight: 660,
+                          color: 'text.secondary',
+                        }}
+                      >
+                        {group}
+                      </Typography>
+                      {Object.entries(entries).map(([k, v]) => (
+                        <Stack
+                          key={k}
+                          direction="row"
+                          spacing={1}
+                          sx={{ alignItems: 'baseline', width: '100%', textAlign: 'left' }}
+                        >
+                          <Box
+                            sx={{
+                              width: 6,
+                              height: 6,
+                              borderRadius: '50%',
+                              bgcolor: color,
+                              flexShrink: 0,
+                              transform: 'translateY(-1px)',
+                            }}
+                          />
+                          <Mono
+                            dim
+                            sx={{ fontSize: 11, flexShrink: 0, maxWidth: '46%', wordBreak: 'break-all' }}
+                          >
+                            {k}
+                          </Mono>
+                          <Mono sx={{ fontSize: 11.5, flex: 1, minWidth: 0, wordBreak: 'break-all' }}>{v}</Mono>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  ))}
               </Stack>
             )}
+          </Panel>
+
+          <Panel>
+            <SectionLabel
+              right={
+                startup.data?.pid ? (
+                  <Mono dim sx={{ fontSize: 10.5 }}>
+                    pid {startup.data.pid}
+                  </Mono>
+                ) : null
+              }
+            >
+              startup command
+            </SectionLabel>
+            {startup.loading ? <LoadingBlock rows={2} /> : null}
+            {startup.data?.sandbox === sandbox.name && startup.data.command ? (
+              <Stack spacing={1.25} sx={{ alignItems: 'stretch', textAlign: 'left' }}>
+                <CodeBlock value={startup.data.command} maxHeight={120} />
+                <Typography sx={{ fontSize: 11.5, color: 'text.secondary', lineHeight: 1.55 }}>
+                  {startup.data.stale
+                    ? 'Last observed command of this sandbox’s main process (it is not running now). The terminal’s “startup” mode attaches this process while it runs.'
+                    : 'Observed from the running canonical main process of this sandbox. The terminal’s “startup” mode attaches exactly this process.'}
+                </Typography>
+                <CodeBlock
+                  value={`openshell sandbox connect ${sandbox.name}\nopenshell sandbox exec ${sandbox.name} -- <command…>`}
+                  maxHeight={90}
+                />
+              </Stack>
+            ) : !startup.loading && startup.data?.sandbox === sandbox.name ? (
+              <Stack spacing={0.75} sx={{ alignItems: 'flex-start', textAlign: 'left' }}>
+                <Mono dim sx={{ fontSize: 11.5 }}>
+                  {startup.data?.reason ?? startup.error ?? 'not observable'}
+                </Mono>
+                <CodeBlock
+                  value={`openshell sandbox connect ${sandbox.name}\nopenshell sandbox exec ${sandbox.name} -- <command…>`}
+                  maxHeight={90}
+                />
+              </Stack>
+            ) : null}
+          </Panel>
+
+          <Panel>
+            <SectionLabel
+              right={
+                <IconButton size="small" onClick={settings.reload}>
+                  <RefreshRoundedIcon fontSize="small" />
+                </IconButton>
+              }
+            >
+              settings
+            </SectionLabel>
+            <Stack spacing={0.6} sx={{ textAlign: 'left' }}>
+              {settingRows.map((row) => (
+                <Stack key={row.key} direction="row" spacing={1} sx={{ alignItems: 'baseline' }}>
+                  <Mono dim sx={{ fontSize: 11, width: 250, flexShrink: 0, wordBreak: 'break-all' }}>
+                    {row.key}
+                  </Mono>
+                  <Mono sx={{ fontSize: 11.5, flex: 1, minWidth: 0, wordBreak: 'break-all' }}>{row.value}</Mono>
+                  {row.source ? (
+                    <Chip size="small" label={row.source} variant="outlined" sx={{ fontFamily: MONO, fontSize: 9.5 }} />
+                  ) : null}
+                  <IconButton
+                    size="small"
+                    color="error"
+                    title="delete setting"
+                    onClick={async () => {
+                      try {
+                        await api.deleteSetting(sandbox.name, row.key, scope);
+                        toast(`deleted setting ${row.key}`);
+                        settings.reload();
+                      } catch (err) {
+                        toast('delete setting failed', { kind: 'err', detail: (err as Error).message });
+                      }
+                    }}
+                  >
+                    <DeleteOutlineRoundedIcon sx={{ fontSize: 15 }} />
+                  </IconButton>
+                </Stack>
+              ))}
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1, alignItems: { sm: 'center' } }}>
+                <TextField
+                  select
+                  label="key"
+                  value={settingKey}
+                  onChange={(e) => setSettingKey(e.target.value)}
+                  sx={{ minWidth: 260 }}
+                >
+                  {[
+                    'agent_policy_proposals_enabled',
+                    'proposal_approval_mode',
+                    'ocsf_json_enabled',
+                    'ocsf_schema_version',
+                  ].map((k) => (
+                    <MenuItem key={k} value={k}>
+                      {k}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="value"
+                  value={settingValue}
+                  onChange={(e) => setSettingValue(e.target.value)}
+                  sx={{ width: 140 }}
+                  slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
+                />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="inherit"
+                  onClick={async () => {
+                    try {
+                      await api.setSetting(sandbox.name, settingKey, settingValue, scope);
+                      toast(`set ${settingKey}=${settingValue}`);
+                      settings.reload();
+                    } catch (err) {
+                      toast('set setting failed', { kind: 'err', detail: (err as Error).message });
+                    }
+                  }}
+                >
+                  set
+                </Button>
+              </Stack>
+              <Typography sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.5 }}>
+                agent_policy_proposals_enabled=true makes denied connections appear under Approvals.
+              </Typography>
+            </Stack>
           </Panel>
         </Stack>
       </Grid>
@@ -573,8 +784,13 @@ function ExecTab({
             {busy ? 'running…' : 'run'}
           </Button>
         </Stack>
-        <Typography sx={{ mt: 1, fontSize: 11.5, color: 'text.secondary', fontFamily: MONO }}>
-          non-interactive; stdin is closed. use the terminal tab for a shell
+        <Typography sx={{ mt: 1, fontSize: 11.5, color: 'text.secondary', lineHeight: 1.55 }}>
+          non-interactive; stdin is closed. The CLI sources the sandbox’s login/profile startup files, and lines that
+          need shell syntax use the sandbox’s own{' '}
+          <Typography component="span" sx={{ fontFamily: MONO, fontSize: 11.5 }}>
+            $SHELL
+          </Typography>
+          — not a hardcoded bash.
         </Typography>
       </Panel>
 
@@ -740,16 +956,208 @@ function PolicyTab({
   name,
   sandbox,
   scope,
+  toast,
+  onChanged,
 }: {
   name: string;
   sandbox: Sandbox;
   scope: { gateway?: string; workspace?: string };
+  toast: (t: string, o?: { kind?: 'ok' | 'err' | 'info'; detail?: string }) => void;
+  onChanged: () => void;
 }) {
   const history = useAsync(() => api.policyHistory(name, scope), { deps: [name] });
+  const [addOpen, setAddOpen] = useState(false);
   const fs = sandbox.policy?.filesystem_policy;
+  const networkRules = Object.entries(sandbox.policy?.network_policies ?? {});
+  const [removal, setRemoval] = useState<
+    | { kind: 'rule'; rule: string }
+    | { kind: 'endpoint'; rule: string; target: string }
+    | { kind: 'matcher'; rule: string; matcher: Record<string, unknown> }
+    | null
+  >(null);
+  const [removing, setRemoving] = useState(false);
+
+  const removalCommand = (r: NonNullable<typeof removal>): string => {
+    const prefix = `openshell${scope.gateway ? ` --gateway ${scope.gateway}` : ''}${scope.workspace ? ` --workspace ${scope.workspace}` : ''}`;
+    if (r.kind === 'rule') return `${prefix} policy update ${name} --remove-rule ${r.rule} --wait`;
+    if (r.kind === 'endpoint') return `${prefix} policy update ${name} --remove-endpoint ${r.target} --wait`;
+    return `${prefix} policy set ${name} --policy policy.yaml --wait`;
+  };
+
+  const doRemoval = async () => {
+    if (!removal || removing) return;
+    setRemoving(true);
+    try {
+      if (removal.kind === 'matcher') {
+        // No CLI flag removes a single matcher: rewrite the policy without it.
+        const doc = JSON.parse(JSON.stringify(sandbox.policy ?? {})) as {
+          network_policies?: Record<string, { endpoints?: Array<{ rules?: unknown[] }>; rules?: unknown[] }>;
+        };
+        const rule = doc.network_policies?.[removal.rule];
+        const same = (m: unknown) => JSON.stringify(m) === JSON.stringify(removal.matcher);
+        if (rule) {
+          for (const e of rule.endpoints ?? []) if (Array.isArray(e.rules)) e.rules = e.rules.filter((m) => !same(m));
+          if (Array.isArray(rule.rules)) rule.rules = rule.rules.filter((m) => !same(m));
+        }
+        await api.setPolicy(name, yamlStringify(doc), scope, true);
+        toast('matcher removed from policy');
+      } else if (removal.kind === 'rule') {
+        await api.updatePolicy(name, { removeRules: [removal.rule], wait: true }, scope);
+        toast(`removed rule ${removal.rule}`);
+      } else {
+        await api.updatePolicy(name, { removeEndpoints: [removal.target], wait: true }, scope);
+        toast(`removed endpoint ${removal.target}`);
+      }
+      setRemoval(null);
+      history.reload();
+      onChanged();
+    } catch (err) {
+      toast('policy removal failed', { kind: 'err', detail: (err as Error).message });
+    } finally {
+      setRemoving(false);
+    }
+  };
 
   return (
-    <Grid container spacing={2.5}>
+    <Stack spacing={2}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.6 }}>
+          Live policy of this sandbox. Add endpoints or L7 rules incrementally, or replace the whole policy YAML.
+        </Typography>
+        <Button variant="contained" startIcon={<PlaylistAddRoundedIcon />} onClick={() => setAddOpen(true)}>
+          add policy
+        </Button>
+      </Stack>
+      <Grid container spacing={2.5}>
+      <Grid size={12}>
+        <Panel>
+          <SectionLabel
+            right={
+              <Mono dim sx={{ fontSize: 10.5 }}>
+                {networkRules.length} rule{networkRules.length === 1 ? '' : 's'}
+              </Mono>
+            }
+          >
+            network policies
+          </SectionLabel>
+          {networkRules.length === 0 ? (
+            <EmptyState
+              title="no network rules yet"
+              hint="default-deny: denied connections appear under Approvals, or add endpoints here"
+            />
+          ) : (
+            <Stack spacing={1.25} sx={{ textAlign: 'left' }}>
+              {networkRules.map(([ruleName, rule]) => (
+                <Box
+                  key={ruleName}
+                  sx={{ p: 1.25, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}
+                >
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Mono sx={{ fontWeight: 640, fontSize: 12.5 }}>{ruleName}</Mono>
+                    {ruleName.startsWith('_provider') ? (
+                      <Chip size="small" label="provider" variant="outlined" sx={{ fontFamily: MONO, fontSize: 10 }} />
+                    ) : null}
+                    <Box sx={{ flex: 1 }} />
+                    <Mono dim sx={{ fontSize: 10.5 }}>
+                      {(rule.endpoints ?? []).length} endpoint{(rule.endpoints ?? []).length === 1 ? '' : 's'}
+                    </Mono>
+                    <Tooltip title="remove the whole rule from the live policy">
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => setRemoval({ kind: 'rule', rule: ruleName })}
+                      >
+                        <DeleteOutlineRoundedIcon sx={{ fontSize: 15 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                  <Stack spacing={0.6} sx={{ mt: 0.75 }}>
+                    {(rule.endpoints ?? []).map((e, i) => (
+                      <Stack
+                        key={i}
+                        direction="row"
+                        spacing={0.6}
+                        sx={{ alignItems: 'baseline', flexWrap: 'wrap', rowGap: 0.5 }}
+                      >
+                        <Mono sx={{ fontSize: 11.5 }}>
+                          {e.host}:{e.port ?? (e.ports ?? []).join(',')}
+                        </Mono>
+                        {[e.protocol, e.access, e.enforcement].filter(Boolean).map((tag) => (
+                          <Chip
+                            key={String(tag)}
+                            size="small"
+                            label={String(tag)}
+                            variant="outlined"
+                            sx={{ fontFamily: MONO, fontSize: 10 }}
+                          />
+                        ))}
+                        {(e.rules ?? []).map((r, j) => (
+                          <Chip
+                            key={j}
+                            size="small"
+                            color={r.allow ? 'success' : 'error'}
+                            variant="outlined"
+                            onDelete={() =>
+                              setRemoval({ kind: 'matcher', rule: ruleName, matcher: r as Record<string, unknown> })
+                            }
+                            label={`${r.allow ? 'allow' : 'deny'} ${r.allow?.method ?? r.deny?.method ?? '*'} ${r.allow?.path ?? r.deny?.path ?? ''}`}
+                            sx={{ fontFamily: MONO, fontSize: 10 }}
+                          />
+                        ))}
+                        <Tooltip title="remove this endpoint from the live policy">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() =>
+                              setRemoval({
+                                kind: 'endpoint',
+                                rule: ruleName,
+                                target: `${e.host}:${e.port ?? (e.ports ?? [])[0] ?? ''}`,
+                              })
+                            }
+                          >
+                            <DeleteOutlineRoundedIcon sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Stack>
+                    ))}
+                    {(rule.binaries ?? []).length ? (
+                      <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
+                        {(rule.binaries ?? []).map((b, i) => (
+                          <Chip
+                            key={i}
+                            size="small"
+                            label={typeof b === 'string' ? b : (b.path ?? '')}
+                            variant="outlined"
+                            sx={{ fontFamily: MONO, fontSize: 10 }}
+                          />
+                        ))}
+                      </Stack>
+                    ) : null}
+                    {(rule.rules ?? []).length ? (
+                      <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
+                        {(rule.rules ?? []).map((r, j) => (
+                          <Chip
+                            key={j}
+                            size="small"
+                            color={r.allow ? 'success' : 'error'}
+                            variant="outlined"
+                            onDelete={() =>
+                              setRemoval({ kind: 'matcher', rule: ruleName, matcher: r as Record<string, unknown> })
+                            }
+                            label={`${r.allow ? 'allow' : 'deny'} ${r.allow?.method ?? r.deny?.method ?? '*'} ${r.allow?.path ?? r.deny?.path ?? ''}`}
+                            sx={{ fontFamily: MONO, fontSize: 10 }}
+                          />
+                        ))}
+                      </Stack>
+                    ) : null}
+                  </Stack>
+                </Box>
+              ))}
+            </Stack>
+          )}
+        </Panel>
+      </Grid>
       <Grid size={{ xs: 12, md: 6 }}>
         <Panel>
           <SectionLabel>filesystem</SectionLabel>
@@ -818,7 +1226,681 @@ function PolicyTab({
           )}
         </Panel>
       </Grid>
-    </Grid>
+      </Grid>
+      <ConfirmDialog
+        open={Boolean(removal)}
+        title={
+          removal?.kind === 'rule'
+            ? `Remove rule ${removal.rule}?`
+            : removal?.kind === 'endpoint'
+              ? `Remove endpoint ${removal.target}?`
+              : 'Remove this allow/deny matcher?'
+        }
+        body={
+          <Stack spacing={1.25}>
+            <Typography sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.6 }}>
+              {removal?.kind === 'rule'
+                ? `The whole network rule (endpoints, binaries, matchers) is removed from the live policy.${removal.rule.startsWith('_provider') ? ' It is managed by a provider attachment and may be re-added by the gateway.' : ''}`
+                : removal?.kind === 'endpoint'
+                  ? 'The endpoint is removed from the live policy; matchers attached to it go with it.'
+                  : 'Only this matcher is removed; the rest of the policy is preserved via a full policy set.'}
+            </Typography>
+            {removal ? <CodeBlock value={removalCommand(removal)} maxHeight={80} /> : null}
+          </Stack>
+        }
+        confirmLabel={removing ? 'removing…' : 'remove'}
+        danger
+        onCancel={() => setRemoval(null)}
+        onConfirm={doRemoval}
+      />
+      <PolicyDialog
+        open={addOpen}
+        name={name}
+        sandbox={sandbox}
+        scope={scope}
+        onClose={() => setAddOpen(false)}
+        onApplied={() => {
+          history.reload();
+          onChanged();
+        }}
+        toast={toast}
+      />
+    </Stack>
+  );
+}
+
+const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', '*'];
+
+function PolicyDialog({
+  open,
+  name,
+  sandbox,
+  scope,
+  onClose,
+  onApplied,
+  toast,
+}: {
+  open: boolean;
+  name: string;
+  sandbox: Sandbox;
+  scope: { gateway?: string; workspace?: string };
+  onClose: () => void;
+  onApplied: () => void;
+  toast: (t: string, o?: { kind?: 'ok' | 'err' | 'info'; detail?: string }) => void;
+}) {
+  const [mode, setMode] = useState<'update' | 'filesystem' | 'yaml'>('update');
+  const [rwPaths, setRwPaths] = useState('');
+  const [roPaths, setRoPaths] = useState('');
+  const [includeWorkdir, setIncludeWorkdir] = useState(true);
+  const [landlock, setLandlock] = useState('best_effort');
+  const [preset, setPreset] = useState('custom');
+  const [host, setHost] = useState('');
+  const [port, setPort] = useState('443');
+  const [access, setAccess] = useState('read-only');
+  const [protocol, setProtocol] = useState('rest');
+  const [enforcement, setEnforcement] = useState('enforce');
+  const [optFlags, setOptFlags] = useState<string[]>([]);
+  const [allowedIp, setAllowedIp] = useState('');
+  const [ruleName, setRuleName] = useState('');
+  const [binaries, setBinaries] = useState('');
+  const [anyBinary, setAnyBinary] = useState(false);
+  const [endpointPath, setEndpointPath] = useState('');
+  const [allowRows, setAllowRows] = useState<Array<{ method: string; path: string }>>([]);
+  const [dryRun, setDryRun] = useState(false);
+  const [wait, setWait] = useState(true);
+  const [yaml, setYaml] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [output, setOutput] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setMode('update');
+    setPreset('custom');
+    setHost('');
+    setPort('443');
+    setAccess('read-only');
+    setProtocol('rest');
+    setEnforcement('enforce');
+    setOptFlags([]);
+    setAllowedIp('');
+    setRuleName('');
+    setBinaries('');
+    setAnyBinary(false);
+    setEndpointPath('');
+    setAllowRows([]);
+    setDryRun(false);
+    setWait(true);
+    setYaml('');
+    setOutput('');
+    const fs0 = sandbox.policy?.filesystem_policy;
+    setRwPaths((fs0?.read_write ?? []).join('\n'));
+    setRoPaths((fs0?.read_only ?? []).join('\n'));
+    setIncludeWorkdir(fs0?.include_workdir ?? true);
+    setLandlock(sandbox.policy?.landlock?.compatibility ?? 'best_effort');
+  }, [open]);
+
+  // Entering filesystem mode reloads the lists from the live policy.
+  useEffect(() => {
+    if (mode !== 'filesystem') return;
+    const fs0 = sandbox.policy?.filesystem_policy;
+    setRwPaths((fs0?.read_write ?? []).join('\n'));
+    setRoPaths((fs0?.read_only ?? []).join('\n'));
+    setIncludeWorkdir(fs0?.include_workdir ?? true);
+    setLandlock(sandbox.policy?.landlock?.compatibility ?? 'best_effort');
+  }, [mode]);
+
+  const binaryList = binaries.split('\n').map((s) => s.trim()).filter(Boolean);
+  const allows = allowRows.filter((r) => r.path.trim());
+  const options = useMemo(
+    () => [...optFlags, ...(allowedIp.trim() ? [`allowed-ip=${allowedIp.trim()}`] : [])].join(','),
+    [optFlags, allowedIp],
+  );
+  const endpointSpec = useMemo(() => {
+    const parts = [host.trim(), port.trim(), access, protocol, enforcement, options];
+    while (parts.length > 2 && parts[parts.length - 1] === '') parts.pop();
+    return parts.join(':');
+  }, [host, port, access, protocol, enforcement, options]);
+
+  const applyPreset = (value: string) => {
+    setPreset(value);
+    const base = { port: '443', enforcement: 'enforce', endpointPath: '', optFlags: [] as string[], allowedIp: '' };
+    switch (value) {
+      case 'github':
+        setHost('api.github.com');
+        setAccess('read-only');
+        setProtocol('rest');
+        setRuleName('github');
+        setBinaries('/usr/bin/gh\n/usr/bin/git');
+        setAnyBinary(false);
+        setAllowRows([{ method: 'GET', path: '/**' }]);
+        break;
+      case 'openai':
+        setHost('api.openai.com');
+        setAccess('read-write');
+        setProtocol('rest');
+        setRuleName('openai');
+        setBinaries('');
+        setAnyBinary(true);
+        setAllowRows([{ method: 'POST', path: '/v1/**' }]);
+        break;
+      case 'anthropic':
+        setHost('api.anthropic.com');
+        setAccess('read-write');
+        setProtocol('rest');
+        setRuleName('anthropic');
+        setBinaries('');
+        setAnyBinary(true);
+        setAllowRows([{ method: 'POST', path: '/v1/**' }]);
+        break;
+      case 'websocket':
+        setHost('');
+        setAccess('read-write');
+        setProtocol('websocket');
+        setRuleName('');
+        setBinaries('');
+        setAnyBinary(false);
+        setAllowRows([]);
+        break;
+      case 'https':
+        setHost('');
+        setAccess('read-only');
+        setProtocol('rest');
+        setRuleName('');
+        setBinaries('');
+        setAnyBinary(false);
+        setAllowRows([]);
+        break;
+      default:
+        setHost('');
+        setAccess('read-only');
+        setProtocol('rest');
+        setRuleName('');
+        setBinaries('');
+        setAnyBinary(false);
+        setAllowRows([]);
+    }
+    setPort(base.port);
+    setEnforcement(base.enforcement);
+    setEndpointPath(base.endpointPath);
+    setOptFlags(base.optFlags);
+    setAllowedIp(base.allowedIp);
+  };
+
+  const scopePrefix = useMemo(() => {
+    const p: string[] = [];
+    if (scope.gateway) p.push('--gateway', scope.gateway);
+    if (scope.workspace) p.push('--workspace', scope.workspace);
+    return p;
+  }, [scope.gateway, scope.workspace]);
+
+  const preview = useMemo(() => {
+    if (mode === 'yaml' || mode === 'filesystem') {
+      return ['openshell', ...scopePrefix, 'policy', 'set', name, '--policy', 'policy.yaml', ...(wait ? ['--wait'] : [])].join(' ');
+    }
+    const base = ['openshell', ...scopePrefix, 'policy', 'update', name];
+    const binArgs = binaryList.flatMap((b) => ['--binary', b]);
+    const nameArgs = ruleName.trim() ? ['--rule-name', ruleName.trim()] : [];
+    const flagArgs = dryRun ? ['--dry-run'] : wait ? ['--wait'] : [];
+    const epArgs = host.trim() && port.trim() ? ['--add-endpoint', endpointSpec] : [];
+    const l7Args = [
+      ...(anyBinary && allows.length ? ['--any-binary'] : []),
+      ...(endpointPath.trim() && allows.length ? ['--endpoint-path', endpointPath.trim()] : []),
+      ...allows.flatMap((r) => ['--add-allow', `${host.trim()}:${port.trim()}:${r.method}:${r.path.trim()}`]),
+    ];
+    // The CLI forbids --add-endpoint together with --add-allow: two sequential updates.
+    if (epArgs.length && l7Args.length) {
+      return [
+        [...base, ...epArgs, ...binArgs, ...nameArgs, ...flagArgs].join(' '),
+        [...base, ...binArgs, ...nameArgs, ...l7Args, ...flagArgs].join(' '),
+      ].join('\n');
+    }
+    return [...base, ...epArgs, ...binArgs, ...nameArgs, ...l7Args, ...flagArgs].join(' ');
+  }, [mode, scopePrefix, name, host, port, endpointSpec, binaryList, ruleName, anyBinary, endpointPath, allows, dryRun, wait]);
+
+  const l7Ok = allows.length === 0 || (Boolean(ruleName.trim()) && (anyBinary || binaryList.length > 0));
+  const canSubmit =
+    mode === 'yaml'
+      ? yaml.trim().length > 0
+      : mode === 'filesystem'
+        ? true
+        : Boolean(host.trim() && port.trim()) && l7Ok;
+
+  const submit = async () => {
+    setBusy(true);
+    setOutput('');
+    try {
+      if (mode === 'filesystem') {
+        const list = (v: string) => v.split('\n').map((x) => x.trim()).filter(Boolean);
+        const doc = {
+          ...(sandbox.policy ?? {}),
+          filesystem_policy: {
+            include_workdir: includeWorkdir,
+            read_only: list(roPaths),
+            read_write: list(rwPaths),
+          },
+          landlock: { compatibility: landlock },
+        };
+        const res = await api.setPolicy(name, yamlStringify(doc), scope, wait);
+        toast('filesystem policy updated', { detail: res.output.trim().split('\n')[0] });
+        onApplied();
+        onClose();
+      } else if (mode === 'yaml') {
+        const res = await api.setPolicy(name, yaml, scope, wait);
+        toast('policy replaced', { detail: res.output.trim().split('\n')[0] });
+        onApplied();
+        onClose();
+      } else {
+        const res = await api.updatePolicy(
+          name,
+          {
+            addEndpoints: [endpointSpec],
+            binaries: binaryList,
+            ruleName: ruleName.trim() || undefined,
+            anyBinary: anyBinary || undefined,
+            endpointPath: allows.length ? endpointPath.trim() || undefined : undefined,
+            addAllow: allows.map((r) => `${host.trim()}:${port.trim()}:${r.method}:${r.path.trim()}`),
+            dryRun: dryRun || undefined,
+            wait: wait || undefined,
+          },
+          scope,
+        );
+        if (dryRun) {
+          setOutput(res.output);
+          toast('dry-run preview ready', { kind: 'info' });
+        } else {
+          toast('policy updated', { detail: res.output.trim().split('\n')[0] });
+          onApplied();
+          onClose();
+        }
+      }
+    } catch (err) {
+      toast('policy change failed', { kind: 'err', detail: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="md" fullWidth>
+      <DialogTitle sx={{ pb: 0.5 }}>
+        Add policy · {name}
+        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.55, mt: 0.6 }}>
+          Incremental merge with <Mono>policy update</Mono>, or full replacement with <Mono>policy set</Mono>. The
+          exact command is shown at the bottom.
+        </Typography>
+      </DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ pt: 1 }}>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={mode}
+            onChange={(_, v: 'update' | 'filesystem' | 'yaml' | null) => v && setMode(v)}
+          >
+            <ToggleButton value="update">endpoint / rules</ToggleButton>
+            <ToggleButton value="filesystem">filesystem</ToggleButton>
+            <ToggleButton value="yaml">full YAML</ToggleButton>
+          </ToggleButtonGroup>
+
+          {mode === 'update' ? (
+            <Grid container spacing={1.75}>
+              <Grid size={{ xs: 12, sm: 5 }}>
+                <TextField
+                  select
+                  fullWidth
+                  label="preset"
+                  value={preset}
+                  onChange={(e) => applyPreset(e.target.value)}
+                >
+                  <MenuItem value="custom">custom…</MenuItem>
+                  <MenuItem value="github">GitHub (api.github.com)</MenuItem>
+                  <MenuItem value="openai">OpenAI (api.openai.com)</MenuItem>
+                  <MenuItem value="anthropic">Anthropic (api.anthropic.com)</MenuItem>
+                  <MenuItem value="https">generic HTTPS endpoint</MenuItem>
+                  <MenuItem value="websocket">generic WebSocket endpoint</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 7 }} sx={{ display: 'flex', alignItems: 'center' }}>
+                <Typography sx={{ fontSize: 11.5, color: 'text.secondary', lineHeight: 1.55 }}>
+                  Defaults: port 443 · read-only · rest · enforce. A preset fills host, protocol, rule name, binaries
+                  and allow rules.
+                </Typography>
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 7 }}>
+                <TextField
+                  fullWidth
+                  label="host"
+                  value={host}
+                  onChange={(e) => setHost(e.target.value)}
+                  placeholder="api.github.com"
+                  slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
+                />
+              </Grid>
+              <Grid size={{ xs: 4, sm: 2 }}>
+                <TextField
+                  fullWidth
+                  label="port"
+                  value={port}
+                  onChange={(e) => setPort(e.target.value)}
+                  slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
+                />
+              </Grid>
+              <Grid size={{ xs: 8, sm: 3 }}>
+                <TextField select fullWidth label="access" value={access} onChange={(e) => setAccess(e.target.value)}>
+                  <MenuItem value="read-only">read-only</MenuItem>
+                  <MenuItem value="read-write">read-write</MenuItem>
+                </TextField>
+              </Grid>
+
+              <Grid size={{ xs: 6, sm: 4 }}>
+                <TextField select fullWidth label="protocol" value={protocol} onChange={(e) => setProtocol(e.target.value)}>
+                  <MenuItem value="rest">rest</MenuItem>
+                  <MenuItem value="graphql">graphql</MenuItem>
+                  <MenuItem value="websocket">websocket</MenuItem>
+                  <MenuItem value="">L4 (none)</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 4 }}>
+                <TextField
+                  select
+                  fullWidth
+                  label="enforcement"
+                  value={enforcement}
+                  onChange={(e) => setEnforcement(e.target.value)}
+                >
+                  <MenuItem value="enforce">enforce</MenuItem>
+                  <MenuItem value="audit">audit</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <TextField
+                  fullWidth
+                  label="allowed-ip (CIDR)"
+                  value={allowedIp}
+                  onChange={(e) => setAllowedIp(e.target.value)}
+                  placeholder="10.0.0.0/8"
+                  slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="rule name (required for L7 rules)"
+                  value={ruleName}
+                  onChange={(e) => setRuleName(e.target.value)}
+                  placeholder="github"
+                  slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="endpoint path (L7 only)"
+                  value={endpointPath}
+                  onChange={(e) => setEndpointPath(e.target.value)}
+                  placeholder="/graphql"
+                  disabled={allows.length === 0}
+                  helperText={
+                    allows.length === 0
+                      ? 'only usable together with an allow/deny rule'
+                      : 'endpoint path; the matcher path goes in the allow rule'
+                  }
+                  slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
+                />
+              </Grid>
+
+              <Grid size={12}>
+                <Typography
+                  sx={{
+                    fontSize: 10.5,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    fontWeight: 660,
+                    color: 'text.secondary',
+                    mb: 0.75,
+                  }}
+                >
+                  endpoint options
+                </Typography>
+                <Grid container spacing={1}>
+                  {[
+                    'allow-encoded-slash',
+                    'allow-uninspected-credentials',
+                    'request-body-credential-rewrite',
+                    'websocket-credential-rewrite',
+                  ].map((flag) => (
+                    <Grid key={flag} size={{ xs: 6, md: 3 }}>
+                      <FormControlLabel
+                        sx={{ m: 0, width: '100%' }}
+                        control={
+                          <Checkbox
+                            checked={optFlags.includes(flag)}
+                            onChange={(e) =>
+                              setOptFlags((flags) =>
+                                e.target.checked ? [...flags, flag] : flags.filter((f) => f !== flag),
+                              )
+                            }
+                          />
+                        }
+                        label={<Typography sx={{ fontSize: 11, fontFamily: MONO }}>{flag}</Typography>}
+                      />
+                    </Grid>
+                  ))}
+                </Grid>
+              </Grid>
+
+              <Grid size={12}>
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  label="binaries (one absolute path per line)"
+                  value={binaries}
+                  onChange={(e) => setBinaries(e.target.value)}
+                  placeholder={'/usr/bin/gh\n/usr/bin/git'}
+                  helperText="for L7 rules this must be the complete binary list, or check --any-binary"
+                  slotProps={{ htmlInput: { spellCheck: false, style: { fontFamily: MONO, fontSize: 12 } } }}
+                />
+              </Grid>
+              <Grid size={12}>
+                <FormControlLabel
+                  sx={{ m: 0 }}
+                  control={<Checkbox checked={anyBinary} onChange={(e) => setAnyBinary(e.target.checked)} />}
+                  label={<Typography sx={{ fontSize: 12.5 }}>--any-binary (rule applies to any binary)</Typography>}
+                />
+              </Grid>
+
+              <Grid size={12}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.75 }}>
+                  <Typography
+                    sx={{
+                      fontSize: 10.5,
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      fontWeight: 660,
+                      color: 'text.secondary',
+                    }}
+                  >
+                    L7 allow rules
+                  </Typography>
+                  <Button
+                    size="small"
+                    color="inherit"
+                    startIcon={<AddRoundedIcon />}
+                    onClick={() => setAllowRows((rows) => [...rows, { method: 'GET', path: '/**' }])}
+                  >
+                    add rule
+                  </Button>
+                </Stack>
+                <Stack spacing={1}>
+                  {allowRows.map((row, i) => (
+                    <Grid container spacing={1} key={i} sx={{ alignItems: 'center' }}>
+                      <Grid size={{ xs: 4, sm: 3 }}>
+                        <TextField
+                          select
+                          fullWidth
+                          label="method"
+                          value={row.method}
+                          onChange={(e) =>
+                            setAllowRows((rows) => rows.map((r, j) => (j === i ? { ...r, method: e.target.value } : r)))
+                          }
+                        >
+                          {METHODS.map((m) => (
+                            <MenuItem key={m} value={m}>
+                              {m}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                      </Grid>
+                      <Grid size={{ xs: 7, sm: 8 }}>
+                        <TextField
+                          fullWidth
+                          label="path glob"
+                          value={row.path}
+                          onChange={(e) =>
+                            setAllowRows((rows) => rows.map((r, j) => (j === i ? { ...r, path: e.target.value } : r)))
+                          }
+                          placeholder="/repos/**"
+                          slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 1 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => setAllowRows((rows) => rows.filter((_, j) => j !== i))}
+                        >
+                          <DeleteOutlineRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </Grid>
+                    </Grid>
+                  ))}
+                  {!l7Ok ? (
+                    <Typography sx={{ fontSize: 11.5, color: 'warning.main' }}>
+                      L7 rules need a rule name and either the complete binary list or --any-binary.
+                    </Typography>
+                  ) : null}
+                </Stack>
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControlLabel
+                  sx={{ m: 0 }}
+                  control={<Checkbox checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />}
+                  label={<Typography sx={{ fontSize: 12.5 }}>--dry-run (preview merge only)</Typography>}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControlLabel
+                  sx={{ m: 0 }}
+                  control={
+                    <Checkbox checked={wait && !dryRun} disabled={dryRun} onChange={(e) => setWait(e.target.checked)} />
+                  }
+                  label={<Typography sx={{ fontSize: 12.5 }}>--wait (sandbox loads revision)</Typography>}
+                />
+              </Grid>
+            </Grid>
+          ) : mode === 'filesystem' ? (
+            <Grid container spacing={1.75}>
+              <Grid size={12}>
+                <Typography sx={{ fontSize: 11.5, color: 'text.secondary', lineHeight: 1.55 }}>
+                  Merges into the current policy with <Mono>policy set</Mono>; network rules and providers are
+                  preserved. Paths are absolute, one per line. The gateway refuses removing protected read-only
+                  paths (e.g. /usr) while the sandbox is live.
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={5}
+                  label="read-write paths"
+                  value={rwPaths}
+                  onChange={(e) => setRwPaths(e.target.value)}
+                  placeholder={'/tmp\n/dev/null'}
+                  slotProps={{ htmlInput: { spellCheck: false, style: { fontFamily: MONO, fontSize: 12 } } }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={5}
+                  label="read-only paths"
+                  value={roPaths}
+                  onChange={(e) => setRoPaths(e.target.value)}
+                  placeholder={'/bin\n/usr'}
+                  slotProps={{ htmlInput: { spellCheck: false, style: { fontFamily: MONO, fontSize: 12 } } }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControlLabel
+                  sx={{ m: 0 }}
+                  control={
+                    <Checkbox checked={includeWorkdir} onChange={(e) => setIncludeWorkdir(e.target.checked)} />
+                  }
+                  label={<Typography sx={{ fontSize: 12.5 }}>include workdir (read-write)</Typography>}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  select
+                  fullWidth
+                  label="landlock compatibility"
+                  value={landlock}
+                  onChange={(e) => setLandlock(e.target.value)}
+                >
+                  <MenuItem value="best_effort">best_effort</MenuItem>
+                  <MenuItem value="hard_requirement">hard_requirement</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid size={12}>
+                <CodeBlock
+                  value={yamlStringify({
+                    filesystem_policy: {
+                      include_workdir: includeWorkdir,
+                      read_only: roPaths.split('\n').map((x) => x.trim()).filter(Boolean),
+                      read_write: rwPaths.split('\n').map((x) => x.trim()).filter(Boolean),
+                    },
+                    landlock: { compatibility: landlock },
+                  })}
+                  maxHeight={180}
+                />
+              </Grid>
+            </Grid>
+          ) : (
+            <TextField
+              fullWidth
+              multiline
+              minRows={10}
+              maxRows={20}
+              label="policy YAML"
+              value={yaml}
+              onChange={(e) => setYaml(e.target.value)}
+              placeholder={'version: 1\nnetwork_policies:\n  example:\n    endpoints:\n      - host: api.example.com\n        port: 443\n        protocol: rest\n        enforcement: enforce\n    binaries:\n      - path: /usr/bin/curl'}
+              helperText="replaces the whole sandbox policy; the bridge writes it to a private temp file"
+              slotProps={{ htmlInput: { spellCheck: false, style: { fontFamily: MONO, fontSize: 12 } } }}
+            />
+          )}
+
+          {output ? <CodeBlock value={output} maxHeight={220} /> : null}
+        </Stack>
+      </DialogContent>
+      <Box sx={{ px: 3, pt: 1.5, pb: 0.5, borderTop: '1px solid', borderColor: 'divider' }}>
+        <SectionLabel>openshell command</SectionLabel>
+        <CodeBlock value={preview} maxHeight={96} />
+      </Box>
+      <DialogActions sx={{ p: 2, pt: 1 }}>
+        <Button color="inherit" onClick={onClose} disabled={busy}>
+          cancel
+        </Button>
+        <Button variant="contained" disabled={busy || !canSubmit} onClick={submit}>
+          {busy ? 'applying…' : mode === 'yaml' ? 'replace policy' : mode === 'filesystem' ? 'apply filesystem' : dryRun ? 'preview merge' : 'apply policy'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 

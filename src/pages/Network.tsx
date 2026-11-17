@@ -10,7 +10,6 @@ import {
   MenuItem,
   Stack,
   TextField,
-  Typography,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
@@ -29,6 +28,7 @@ import {
   ErrorNote,
   LoadingBlock,
   Mono,
+  PageHeader,
   Panel,
   SectionLabel,
 } from '../components/ui';
@@ -111,12 +111,10 @@ export default function Network() {
 
   return (
     <Stack spacing={2.5}>
-      <Box>
-        <Typography variant="h2">Network</Typography>
-        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', fontFamily: MONO }}>
-          services publish a loopback port over the gateway; forwards bring a sandbox port back to your laptop
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Network"
+        description="Services publish a loopback port over the gateway; forwards bring a sandbox port back to your laptop."
+      />
 
       <Grid container spacing={2.5}>
         <Grid size={{ xs: 12, md: 7 }}>

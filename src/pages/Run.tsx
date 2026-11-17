@@ -28,7 +28,16 @@ import { useShell } from '../Shell';
 import { MONO } from '../theme';
 import type { RunResult } from '../api/types';
 import { copyToClipboard } from '../lib/format';
-import { EmptyState, ErrorNote, LoadingBlock, Mono, Panel, PhaseChip, SectionLabel } from '../components/ui';
+import {
+  EmptyState,
+  ErrorNote,
+  LoadingBlock,
+  Mono,
+  PageHeader,
+  Panel,
+  PhaseChip,
+  SectionLabel,
+} from '../components/ui';
 
 interface RunRecord {
   id: number;
@@ -40,10 +49,22 @@ interface RunRecord {
 
 const EXAMPLES = [
   'pwd && id',
-  'ls -la /workspace',
+  'ls -la /sandbox',
   'uname -a',
-  'env | sort | head -40',
-  'bash -lc "echo hello from $HOSTNAME"',
+  'cat /etc/os-release',
+  'printenv | sort | head -30',
+  'ps -ef | head -20',
+  'df -h /sandbox',
+  'echo hello from $HOSTNAME',
+];
+
+const TIPS: Array<[string, string]> = [
+  ['startup environment', 'The CLI sources the sandbox user’s login/profile startup files before every command, so PATH, VIRTUAL_ENV and tool env are the real ones.'],
+  ['shell syntax', 'Plain commands run directly. Pipes, &&, redirects, globs and $ expansion run through the sandbox’s own $SHELL — never a hardcoded bash.'],
+  ['secrets', 'Do not put API keys in commands or env. Attach a provider (Profiles page); the gateway injects credential handles instead of raw secrets.'],
+  ['network is default-deny', 'A denied connection shows up under Approvals as a proposed rule. Approve it there, then retry the command.'],
+  ['interactive work', 'Use the sandbox terminal for live sessions: “startup” attaches the main process, “shell” opens a shell. Sessions survive page switches.'],
+  ['shortcuts', '⌘/Ctrl+Enter runs the command. The last 12 runs of this session stay in the history below the output.'],
 ];
 
 export default function Run() {
@@ -62,6 +83,10 @@ export default function Run() {
   const sandboxes = useAsync(() => api.sandboxes(scope), { deps: [scope.gateway, scope.workspace] });
   const list = sandboxes.data?.sandboxes ?? [];
   const selected = useMemo(() => list.find((s) => s.name === sandbox), [list, sandbox]);
+  const startup = useAsync(
+    () => (sandbox ? api.startupCommand(sandbox, scope) : Promise.resolve(null)),
+    { deps: [sandbox, scope.gateway, scope.workspace] },
+  );
 
   useEffect(() => {
     if (!sandbox && list.length > 0) {
@@ -110,36 +135,34 @@ export default function Run() {
 
   return (
     <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ alignItems: { md: 'flex-end' } }}>
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="h2">Run</Typography>
-          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', fontFamily: MONO, mt: 0.4 }}>
-            start a sandbox if needed, then run one command through its shell and collect the exit status
-          </Typography>
-        </Box>
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-          <Button
-            size="small"
-            variant="outlined"
-            color="inherit"
-            startIcon={<OpenInNewRoundedIcon />}
-            disabled={!selected}
-            onClick={() => selected && navigate(`/sandboxes/${selected.name}`)}
-          >
-            open sandbox
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            color="inherit"
-            startIcon={starting ? <CircularProgress size={14} /> : <RestartAltRoundedIcon />}
-            disabled={!selected || starting || !['Stopped', 'Suspended'].includes(selected.phase)}
-            onClick={startOnly}
-          >
-            start only
-          </Button>
-        </Stack>
-      </Stack>
+      <PageHeader
+        title="Run"
+        description="Start or resume a sandbox, then run one command through its shell and collect the exit status."
+        actions={
+          <>
+            <Button
+              size="small"
+              variant="outlined"
+              color="inherit"
+              startIcon={<OpenInNewRoundedIcon />}
+              disabled={!selected}
+              onClick={() => selected && navigate(`/sandboxes/${selected.name}`)}
+            >
+              open sandbox
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="inherit"
+              startIcon={starting ? <CircularProgress size={14} /> : <RestartAltRoundedIcon />}
+              disabled={!selected || starting || !['Stopped', 'Suspended'].includes(selected.phase)}
+              onClick={startOnly}
+            >
+              start only
+            </Button>
+          </>
+        }
+      />
 
       <Grid container spacing={2.5}>
         <Grid size={{ xs: 12, lg: 5 }}>
@@ -186,10 +209,58 @@ export default function Run() {
                       <Chip
                         size="small"
                         variant="outlined"
-                        label={`template ${selected.created_from_workload_template}`}
+                        label={`template ${
+                          typeof selected.created_from_workload_template === 'string'
+                            ? selected.created_from_workload_template
+                            : selected.created_from_workload_template.name
+                        }`}
                         sx={{ fontFamily: MONO, fontSize: 10 }}
                       />
                     ) : null}
+                  </Stack>
+                ) : null}
+                {startup.data?.sandbox === sandbox && startup.data.command ? (
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{
+                      alignItems: 'center',
+                      p: 1,
+                      borderRadius: 1.5,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      bgcolor: 'action.hover',
+                    }}
+                  >
+                    <Typography
+                      sx={{
+                        fontSize: 10,
+                        letterSpacing: '0.08em',
+                        textTransform: 'uppercase',
+                        fontWeight: 660,
+                        color: 'text.secondary',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {startup.data?.stale ? 'last startup' : 'startup'}
+                    </Typography>
+                    <Tooltip title={startup.data.command}>
+                      <Mono
+                        sx={{
+                          fontSize: 11.5,
+                          flex: 1,
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {startup.data.command}
+                      </Mono>
+                    </Tooltip>
+                    <Button size="small" color="inherit" onClick={() => setCommand(startup.data?.command ?? '')}>
+                      use
+                    </Button>
                   </Stack>
                 ) : null}
               </Stack>
@@ -266,6 +337,32 @@ export default function Run() {
               </Stack>
             </Box>
           </Panel>
+
+          <Panel sx={{ mt: 2.5 }}>
+            <SectionLabel>tips</SectionLabel>
+            <Stack spacing={1.1} sx={{ textAlign: 'left' }}>
+              {TIPS.map(([title, body]) => (
+                <Stack key={title} direction="row" spacing={1.1} sx={{ alignItems: 'flex-start' }}>
+                  <Box
+                    sx={{
+                      width: 5,
+                      height: 5,
+                      borderRadius: '50%',
+                      bgcolor: 'primary.main',
+                      flexShrink: 0,
+                      mt: 0.85,
+                    }}
+                  />
+                  <Typography sx={{ fontSize: 12, color: 'text.secondary', lineHeight: 1.6 }}>
+                    <Typography component="span" sx={{ fontSize: 12, fontWeight: 640, color: 'text.primary' }}>
+                      {title}.{' '}
+                    </Typography>
+                    {body}
+                  </Typography>
+                </Stack>
+              ))}
+            </Stack>
+          </Panel>
         </Grid>
 
         <Grid size={{ xs: 12, lg: 7 }}>
@@ -296,7 +393,7 @@ export default function Run() {
               <EmptyState
                 icon={<TerminalRoundedIcon />}
                 title="nothing run yet"
-                hint="Commands run non-interactively with bash -lc. Use the terminal on a sandbox page for a live PTY."
+                hint="Commands run non-interactively with the sandbox’s login environment; shell syntax uses its own $SHELL. Use the terminal on a sandbox page for a live PTY."
               />
             ) : null}
             {result ? (

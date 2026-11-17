@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -50,6 +51,7 @@ import {
   IconAction,
   LoadingBlock,
   Mono,
+  PageHeader,
   Panel,
   PhaseChip,
 } from '../components/ui';
@@ -83,7 +85,7 @@ export default function SandboxList() {
     intervalMs: 4000,
   });
   const templates = useAsync(() => api.templates(scope), { deps: [scope.gateway, scope.workspace] });
-  const profiles = useAsync(() => api.profiles(scope), { deps: [scope.gateway, scope.workspace] });
+  const providers = useAsync(() => api.providers(scope), { deps: [scope.gateway, scope.workspace] });
 
   const rows = useMemo(() => {
     const all = state.data?.sandboxes ?? [];
@@ -122,36 +124,38 @@ export default function SandboxList() {
 
   return (
     <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}>
-        <Box>
-          <Typography variant="h2">Sandboxes</Typography>
-          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', fontFamily: MONO }}>
+      <PageHeader
+        title="Sandboxes"
+        eyebrow={
+          <Typography sx={{ fontSize: 11.5, color: 'text.secondary', fontFamily: MONO }}>
             {state.data ? `${rows.length} shown of ${state.data.sandboxes.length}` : 'reading fleet…'} ·{' '}
             {scope.gateway ?? 'active gateway'} / {scope.workspace ?? 'default'}
           </Typography>
-        </Box>
-        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-          <TextField
-            placeholder="filter by name"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            sx={{ width: { xs: '100%', sm: 230 } }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <SearchRoundedIcon sx={{ fontSize: 16, color: 'text.secondary', mr: 0.75 }} />
-                ),
-              },
-            }}
-          />
-          <IconButton onClick={state.reload} sx={{ border: '1px solid', borderColor: 'divider' }}>
-            <RefreshRoundedIcon />
-          </IconButton>
-          <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setCreating(true)}>
-            new
-          </Button>
-        </Stack>
-      </Stack>
+        }
+        actions={
+          <>
+            <TextField
+              placeholder="filter by name"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              sx={{ width: { xs: '100%', sm: 230 } }}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <SearchRoundedIcon sx={{ fontSize: 16, color: 'text.secondary', mr: 0.75 }} />
+                  ),
+                },
+              }}
+            />
+            <IconButton onClick={state.reload} sx={{ border: '1px solid', borderColor: 'divider' }}>
+              <RefreshRoundedIcon />
+            </IconButton>
+            <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setCreating(true)}>
+              new
+            </Button>
+          </>
+        }
+      />
 
       <Panel dense sx={{ py: 1.25 }}>
         <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", flexWrap: "wrap" }}>
@@ -236,7 +240,11 @@ export default function SandboxList() {
                           <Mono sx={{ fontWeight: 620, fontSize: 13.5 }}>{s.name}</Mono>
                           {s.created_from_workload_template ? (
                             <Chip
-                              label={s.created_from_workload_template}
+                              label={
+                                typeof s.created_from_workload_template === 'string'
+                                  ? s.created_from_workload_template
+                                  : s.created_from_workload_template.name
+                              }
                               size="small"
                               variant="outlined"
                               sx={{ fontFamily: MONO, fontSize: 10 }}
@@ -358,7 +366,7 @@ export default function SandboxList() {
         open={creating}
         onClose={() => setCreating(false)}
         templates={templates.data?.templates ?? []}
-        profiles={profiles.data ?? []}
+        providerNames={(providers.data?.providers ?? []).map((p) => p.name)}
         scope={scope}
         onCreated={(name) => {
           state.reload();
@@ -388,15 +396,15 @@ function CreateSandboxDialog({
   open,
   onClose,
   templates,
-  profiles,
+  providerNames,
   scope,
   onCreated,
   toast,
 }: {
   open: boolean;
   onClose: () => void;
-  templates: Array<{ name: string; image?: string }>;
-  profiles: Array<{ name?: string }>;
+  templates: Array<{ name: string; image?: string; resources?: { cpu?: string; memory?: string; gpu?: number } }>;
+  providerNames: string[];
   scope: { gateway?: string; workspace?: string };
   onCreated: (name: string | null) => void;
   toast: (t: string, o?: { kind?: 'ok' | 'err' | 'info'; detail?: string }) => void;
@@ -418,6 +426,8 @@ function CreateSandboxDialog({
 
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  const selectedTemplate = templates.find((t) => t.name === form.template);
 
   const submit = async () => {
     setBusy(true);
@@ -457,10 +467,10 @@ function CreateSandboxDialog({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle sx={{ pb: 0.5 }}>new sandbox</DialogTitle>
+      <DialogTitle sx={{ pb: 0.5 }}>New sandbox</DialogTitle>
       <DialogContent>
-        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', mb: 2, fontFamily: MONO }}>
-          openshell sandbox create — isolated workload, default-deny policy
+        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.55, mb: 2 }}>
+          <Mono>openshell sandbox create</Mono> — isolated workload, default-deny policy.
         </Typography>
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, sm: 6 }}>
@@ -498,7 +508,13 @@ function CreateSandboxDialog({
                 fullWidth
                 label="--template"
                 value={form.template}
-                onChange={(e) => set('template', e.target.value)}
+                onChange={(e) => {
+                  const name = e.target.value;
+                  set('template', name);
+                  const t = templates.find((x) => x.name === name);
+                  set('cpu', t?.resources?.cpu ?? '');
+                  set('memory', t?.resources?.memory ?? '');
+                }}
                 helperText={templates.length ? '' : 'no templates registered in this scope'}
               >
                 {templates.map((t) => (
@@ -527,6 +543,7 @@ function CreateSandboxDialog({
               placeholder="1"
               value={form.cpu}
               onChange={(e) => set('cpu', e.target.value)}
+              helperText={form.mode === 'template' ? `baseline ${selectedTemplate?.resources?.cpu ?? '—'}` : ' '}
               slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
             />
           </Grid>
@@ -537,37 +554,63 @@ function CreateSandboxDialog({
               placeholder="512Mi"
               value={form.memory}
               onChange={(e) => set('memory', e.target.value)}
+              helperText={form.mode === 'template' ? `baseline ${selectedTemplate?.resources?.memory ?? '—'}` : ' '}
               slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 4 }}>
             <Stack direction="row" spacing={1} sx={{ pl: 0.5, alignItems: "center" }}>
               <Switch checked={form.gpu} onChange={(e) => set('gpu', e.target.checked)} />
-              <Typography sx={{ fontSize: 13 }}>--gpu (driver default)</Typography>
+              <Typography sx={{ fontSize: 13 }}>
+                {form.mode === 'template' && selectedTemplate?.resources?.gpu != null
+                  ? `--gpu (template: ${selectedTemplate.resources.gpu})`
+                  : '--gpu (driver default)'}
+              </Typography>
             </Stack>
           </Grid>
-          {profiles.length ? (
+          {form.mode === 'template' ? (
             <Grid size={{ xs: 12 }}>
-              <TextField
-                select
-                fullWidth
-                label="--provider"
-                value={form.providers[0] ?? ''}
-                onChange={(e) => set('providers', e.target.value ? [e.target.value] : [])}
-                helperText="credentials are injected as handles, never as raw values"
-              >
-                <MenuItem value="">none</MenuItem>
-                {profiles
-                  .map((p) => p.name ?? '')
-                  .filter(Boolean)
-                  .map((name) => (
-                    <MenuItem key={name} value={name}>
-                      {name}
-                    </MenuItem>
-                  ))}
-              </TextField>
+              <Typography sx={{ fontSize: 11.5, color: 'text.secondary', lineHeight: 1.6 }}>
+                The CLI forbids <Mono>--template</Mono> together with resource flags. Leaving the baseline unchanged
+                creates straight from the template; changing cpu / memory / gpu creates a one-off derived template
+                (a full copy with your resources), creates from it, then removes it. The sandbox keeps an{' '}
+                <Mono>openshell.io/template-source</Mono> label pointing at the original.
+              </Typography>
             </Grid>
           ) : null}
+          <Grid size={{ xs: 12 }}>
+            <Autocomplete
+              multiple
+              fullWidth
+              disabled={providerNames.length === 0}
+              options={providerNames}
+              value={form.providers}
+              onChange={(_, value) => set('providers', value.map(String))}
+              renderValue={(value, getItemProps) =>
+                (value as string[]).map((option, index) => (
+                  <Chip
+                    {...getItemProps({ index })}
+                    key={option}
+                    label={option}
+                    size="small"
+                    sx={{ fontFamily: MONO }}
+                  />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="--provider"
+                  placeholder={providerNames.length ? 'pick providers in this workspace' : 'none in this workspace'}
+                  helperText={
+                    providerNames.length
+                      ? `workspace providers: ${providerNames.join(', ')} · credentials are injected as handles, never as raw values`
+                      : 'create one on the Profiles page first; credentials are injected as handles, never as raw values'
+                  }
+                />
+              )}
+            />
+          </Grid>
           <Grid size={{ xs: 12 }}>
             <TextField
               fullWidth

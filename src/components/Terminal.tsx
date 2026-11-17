@@ -1,162 +1,99 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Button, Chip, Stack, Typography } from '@mui/material';
+import { Box, Button, Chip, Stack, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
 import PowerSettingsNewRoundedIcon from '@mui/icons-material/PowerSettingsNewRounded';
 import FiberManualRecordRoundedIcon from '@mui/icons-material/FiberManualRecordRounded';
-import { Terminal as XTerm } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
-import '@xterm/xterm/css/xterm.css';
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 
 import { MONO } from '../theme';
 import { PhaseChip } from './ui';
-
-type Status = 'connecting' | 'open' | 'closed' | 'error';
+import {
+  acquireSession,
+  dropSession,
+  sessionKey,
+  type SessionState,
+  type TerminalMode,
+  type TerminalSession,
+} from './terminalSession';
 
 /**
- * A real PTY inside the browser: keystrokes go over a WebSocket to the bridge,
- * which holds `openshell sandbox exec --tty` open. Resizing the panel sends new
- * dimensions on reconnect, matching how the CLI sizes the remote PTY.
+ * A real PTY inside the browser, backed by a persistent session: switching tabs
+ * or navigating away keeps the remote shell / attached workload alive, and
+ * coming back re-attaches the same scrollback. `workload` attaches the sandbox's
+ * canonical main process (the command it was started with); `shell` opens the
+ * sandbox user's own shell. Neither path assumes bash.
  */
-export function TerminalPanel({ name, phase }: { name: string; phase: string }) {
+export function TerminalPanel({
+  name,
+  phase,
+  scope,
+}: {
+  name: string;
+  phase: string;
+  scope: { gateway?: string; workspace?: string };
+}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const termRef = useRef<XTerm | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
-  const [status, setStatus] = useState<Status>('connecting');
-  const [message, setMessage] = useState('');
+  const sessionRef = useRef<TerminalSession | null>(null);
+  const [state, setState] = useState<SessionState>({ status: 'connecting', message: '' });
+  const [mode, setMode] = useState<TerminalMode>(() => {
+    try {
+      return window.localStorage.getItem(`os.termMode.${name}`) === 'shell' ? 'shell' : 'workload';
+    } catch {
+      return 'workload';
+    }
+  });
+  const [ended, setEnded] = useState(false);
   const [nonce, setNonce] = useState(0);
 
   const ready = phase === 'Ready' || phase === 'Running';
+  const key = sessionKey({ name, mode, gateway: scope.gateway, workspace: scope.workspace });
 
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !ready) return;
-
-    const term = new XTerm({
-      fontFamily: MONO,
-      fontSize: 13,
-      lineHeight: 1.35,
-      cursorBlink: true,
-      convertEol: false,
-      scrollback: 6000,
-      theme: {
-        background: '#080a10',
-        foreground: '#e6ebf5',
-        cursor: '#7c5cff',
-        cursorAccent: '#080a10',
-        selectionBackground: 'rgba(124,92,255,0.35)',
-        black: '#1a1e2a',
-        red: '#ff5f6d',
-        green: '#35d29a',
-        yellow: '#f2a53c',
-        blue: '#5aa9ff',
-        magenta: '#a78bfa',
-        cyan: '#22d3ee',
-        white: '#c8d0e0',
-        brightBlack: '#4a5568',
-        brightRed: '#ff8a94',
-        brightGreen: '#6ee7b7',
-        brightYellow: '#ffd08a',
-        brightBlue: '#8dc4ff',
-        brightMagenta: '#c4b5fd',
-        brightCyan: '#67e8f9',
-        brightWhite: '#ffffff',
-      },
+    if (!host || !ready || ended) return;
+    const session = acquireSession({ name, mode, gateway: scope.gateway, workspace: scope.workspace });
+    sessionRef.current = session;
+    host.appendChild(session.element);
+    session.init();
+    const unsubscribe = session.subscribe(setState);
+    // Give the browser a frame to lay the element out, then size and focus it so
+    // keystrokes land in the session immediately after opening the tab.
+    const raf = requestAnimationFrame(() => {
+      session.fit();
+      session.focus();
     });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
-    term.open(host);
-    try {
-      fit.fit();
-    } catch {
-      /* container not measurable yet */
-    }
-    termRef.current = term;
-
-    const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${scheme}//${window.location.host}/api/terminal?name=${encodeURIComponent(
-      name,
-    )}&cols=${term.cols}&rows=${term.rows}`;
-    setStatus('connecting');
-    const ws = new WebSocket(url);
-    socketRef.current = ws;
-
-    let disposed = false;
-    ws.onopen = () => {
-      if (disposed) return;
-      setStatus('open');
-      setMessage('');
-    };
-    ws.onmessage = (ev) => {
-      if (disposed) return;
-      let payload: { type?: string; data?: string; message?: string; code?: number | null };
-      try {
-        payload = JSON.parse(String(ev.data));
-      } catch {
-        return;
-      }
-      if (payload.type === 'data') term.write(payload.data ?? '');
-      if (payload.type === 'error') {
-        setStatus('error');
-        setMessage(payload.message ?? 'terminal error');
-      }
-      if (payload.type === 'exit') {
-        setStatus('closed');
-        setMessage(
-          payload.message || `shell exited (code ${payload.code ?? 'unknown'}) — restart the sandbox if it completed`,
-        );
-      }
-    };
-    ws.onerror = () => {
-      if (disposed) return;
-      setStatus('error');
-      setMessage('the terminal socket failed — is the API bridge running?');
-    };
-    ws.onclose = () => {
-      if (disposed) return;
-      setStatus((s) => (s === 'open' ? 'closed' : s));
-    };
-
-    term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
-    });
-
-    const onResize = () => {
-      try {
-        fit.fit();
-      } catch {
-        /* ignore */
-      }
-    };
+    const onResize = () => session.fit();
     window.addEventListener('resize', onResize);
     const observer = new ResizeObserver(onResize);
     observer.observe(host);
-    term.focus();
-
     return () => {
-      disposed = true;
+      cancelAnimationFrame(raf);
+      unsubscribe();
       window.removeEventListener('resize', onResize);
       observer.disconnect();
-      try {
-        ws.close();
-      } catch {
-        /* already closed */
-      }
-      term.dispose();
-      termRef.current = null;
-      socketRef.current = null;
+      if (session.element.parentNode === host) host.removeChild(session.element);
+      sessionRef.current = null;
     };
-  }, [name, ready, nonce]);
+  }, [name, ready, mode, scope.gateway, scope.workspace, nonce, ended]);
+
+  const view: SessionState = ended
+    ? { status: 'closed', message: 'session ended — reconnect to start a new one' }
+    : state;
+
+  // Put the caret in the session as soon as it is live, so opening the tab (or
+  // coming back to it) is immediately typeable without an extra click.
+  useEffect(() => {
+    if (view.status === 'open') sessionRef.current?.focus();
+  }, [view.status]);
 
   const statusLabel = useMemo(
     () =>
       ({
         connecting: 'opening pty…',
         open: 'streaming',
-        closed: 'shell closed',
+        closed: 'session closed',
         error: 'disconnected',
-      })[status],
-    [status],
+      })[view.status],
+    [view.status],
   );
 
   if (!ready) {
@@ -165,7 +102,7 @@ export function TerminalPanel({ name, phase }: { name: string; phase: string }) 
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
           <PhaseChip phase={phase} />
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
-            `sandbox exec` needs a Ready sandbox — start this one, then reopen the terminal.
+            The terminal needs a Ready sandbox — start this one, then reopen the terminal.
           </Typography>
         </Stack>
       </Stack>
@@ -174,7 +111,32 @@ export function TerminalPanel({ name, phase }: { name: string; phase: string }) 
 
   return (
     <Stack spacing={1.5}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+        <Tooltip title="startup attaches the sandbox's canonical main process (its startup command); shell opens the sandbox user's own shell. Sessions stay alive when you switch tabs or pages.">
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            value={mode}
+            onChange={(_, value: TerminalMode | null) => {
+              if (value) {
+                setMode(value);
+                setEnded(false);
+                try {
+                  window.localStorage.setItem(`os.termMode.${name}`, value);
+                } catch {
+                  /* storage disabled — preference lives for this mount only */
+                }
+              }
+            }}
+          >
+            <ToggleButton value="workload" sx={{ fontFamily: MONO, fontSize: 10.5, px: 1.1, py: 0.3 }}>
+              startup
+            </ToggleButton>
+            <ToggleButton value="shell" sx={{ fontFamily: MONO, fontSize: 10.5, px: 1.1, py: 0.3 }}>
+              shell
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Tooltip>
         <Box
           sx={{
             display: 'flex',
@@ -190,36 +152,62 @@ export function TerminalPanel({ name, phase }: { name: string; phase: string }) 
           <FiberManualRecordRoundedIcon
             sx={{
               fontSize: 9,
-              color: status === 'open' ? 'success.main' : status === 'closed' ? 'text.secondary' : 'warning.main',
+              color:
+                view.status === 'open' ? 'success.main' : view.status === 'closed' ? 'text.secondary' : 'warning.main',
             }}
           />
           <Typography sx={{ fontFamily: MONO, fontSize: 11.5 }}>{statusLabel}</Typography>
         </Box>
         <Chip
-          label={`openshell sandbox exec ${name} --tty`}
+          label={
+            mode === 'workload'
+              ? `openshell sandbox connect ${name}`
+              : `openshell sandbox exec ${name} --tty -- $SHELL`
+          }
           size="small"
           variant="outlined"
           sx={{ fontFamily: MONO, fontSize: 10.5 }}
         />
         <Box sx={{ flex: 1 }} />
-        {status === 'closed' || status === 'error' ? (
+        {ended || view.status === 'closed' || view.status === 'error' ? (
           <Button
             size="small"
             variant="outlined"
             startIcon={<PowerSettingsNewRoundedIcon />}
-            onClick={() => setNonce((n) => n + 1)}
+            onClick={() => {
+              if (ended) {
+                setEnded(false);
+                setNonce((n) => n + 1);
+              } else {
+                sessionRef.current?.reconnect();
+              }
+            }}
           >
             reconnect
           </Button>
         ) : null}
+        <Tooltip title="close this session and kill the remote shell / detach the workload">
+          <Button
+            size="small"
+            color="inherit"
+            startIcon={<CloseRoundedIcon />}
+            onClick={() => {
+              dropSession(key);
+              setEnded(true);
+            }}
+          >
+            end session
+          </Button>
+        </Tooltip>
       </Stack>
 
-      {message ? (
-        <Typography sx={{ fontFamily: MONO, fontSize: 12, color: 'warning.main' }}>{message}</Typography>
+      {view.message ? (
+        <Typography sx={{ fontFamily: MONO, fontSize: 12, color: 'warning.main' }}>{view.message}</Typography>
       ) : null}
 
       <Box
         ref={hostRef}
+        onMouseDown={() => sessionRef.current?.focus()}
         sx={{
           height: 'min(62vh, 560px)',
           minHeight: 300,
@@ -229,10 +217,15 @@ export function TerminalPanel({ name, phase }: { name: string; phase: string }) 
           borderRadius: 2,
           p: 1,
           overflow: 'hidden',
+          cursor: 'text',
         }}
       />
-      <Typography sx={{ fontSize: 11.5, color: 'text.secondary', fontFamily: MONO }}>
-        ctrl-c interrupts · the shell is the sandbox’s login shell, so PATH and env are the real ones
+      <Typography sx={{ fontSize: 11.5, color: 'text.secondary', lineHeight: 1.55 }}>
+        ctrl-c interrupts · “startup” attaches the canonical main process; “shell” opens the sandbox user’s own{' '}
+        <Typography component="span" sx={{ fontFamily: MONO, fontSize: 11.5 }}>
+          $SHELL
+        </Typography>
+        . Sessions survive tab and page switches — use “end session” to kill one.
       </Typography>
     </Stack>
   );

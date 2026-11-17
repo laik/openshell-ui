@@ -36,6 +36,7 @@ import GavelRoundedIcon from '@mui/icons-material/GavelRounded';
 import DnsRoundedIcon from '@mui/icons-material/DnsRounded';
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
+import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 import { useShell } from '../Shell';
@@ -43,7 +44,7 @@ import { useAsync } from '../hooks';
 import { api } from '../api/client';
 import { MONO } from '../theme';
 import { PhaseDot } from './ui';
-import type { Context } from '../api/types';
+import type { AuthUser, Context } from '../api/types';
 
 interface NavItem {
   to: string;
@@ -87,17 +88,16 @@ function Brand({ compact }: { compact?: boolean }) {
         sx={{
           width: 30,
           height: 30,
-          borderRadius: 2,
+          borderRadius: 0.5,
           display: 'grid',
           placeItems: 'center',
-          background: 'linear-gradient(135deg,#7c5cff,#22d3ee)',
-          boxShadow: '0 6px 20px -6px rgba(124,92,255,0.6)',
+          bgcolor: '#76b900',
         }}
       >
         <Box
           component="svg"
           viewBox="0 0 24 24"
-          sx={{ width: 17, height: 17, fill: 'none', stroke: '#07080c', strokeWidth: 2 }}
+          sx={{ width: 17, height: 17, fill: 'none', stroke: '#000000', strokeWidth: 2 }}
         >
           <path d="M12 3 20 7.5v9L12 21 4 16.5v-9z" />
           <circle cx="12" cy="12" r="2.4" fill="#07080c" stroke="none" />
@@ -218,7 +218,17 @@ function ScopeSelects({
   );
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  user,
+  onLogout,
+  authMode,
+}: {
+  children: React.ReactNode;
+  user?: AuthUser | null;
+  onLogout?: () => void;
+  authMode?: 'local' | 'oidc';
+}) {
   const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
@@ -306,12 +316,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             sx={{
               px: 1.25,
               mb: 0.5,
-              fontSize: 9.5,
-              letterSpacing: '0.18em',
+              fontSize: 10,
+              letterSpacing: '0.12em',
               textTransform: 'uppercase',
-              fontWeight: 700,
+              fontWeight: 690,
               color: 'text.disabled',
-              fontFamily: MONO,
             }}
           >
             {group.section}
@@ -332,12 +341,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     py: 0.85,
                     px: 1.25,
                     gap: 1.25,
-                    borderRadius: 2,
+                    borderRadius: 0,
                     border: '1px solid transparent',
-                    borderColor: active ? 'rgba(124,92,255,0.4)' : 'transparent',
-                    bgcolor: active ? 'rgba(124,92,255,0.13)' : 'transparent',
-                    '&:hover': { bgcolor: 'rgba(124,92,255,0.08)' },
-                    '&.Mui-selected:hover': { bgcolor: 'rgba(124,92,255,0.16)' },
+                    position: 'relative',
+                    bgcolor: active ? 'rgba(118,185,0,0.12)' : 'transparent',
+                    '&::before': active
+                      ? {
+                          content: '""',
+                          position: 'absolute',
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: 3,
+                          borderRadius: 0,
+                          background: '#76b900',
+                        }
+                      : undefined,
+                    '&:hover': { bgcolor: 'rgba(118,185,0,0.07)' },
+                    '&.Mui-selected:hover': { bgcolor: 'rgba(118,185,0,0.16)' },
                   }}
                 >
                   <Box sx={{ color: active ? 'primary.main' : 'text.secondary', display: 'flex' }}>
@@ -360,14 +381,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                             minWidth: 18,
                             height: 18,
                             px: 0.6,
-                            borderRadius: 99,
+                            borderRadius: 0.5,
                             display: 'grid',
                             placeItems: 'center',
                             fontSize: 10,
                             fontWeight: 700,
                             fontFamily: MONO,
-                            color: '#0a0b10',
-                            background: 'linear-gradient(120deg,#f2a53c,#ff5f6d)',
+                            color: '#000000',
+                            bgcolor: '#ffb800',
                           }}
                         >
                           {count > 99 ? '99+' : count}
@@ -445,8 +466,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 display: 'grid',
                 placeItems: 'start center',
                 pt: '12vh',
-                bgcolor: 'rgba(4,5,9,0.6)',
-                backdropFilter: 'blur(6px)',
+                bgcolor: 'rgba(0,0,0,0.6)',
               }
             : undefined,
         }}
@@ -495,6 +515,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Box sx={{ flex: 1 }} />
 
           <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+            {authMode === 'local' ? (
+              <Tooltip title="local mode: no sign-in, operations run with this machine's CLI identity. Click to open the console chooser.">
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label="local · CLI identity"
+                  onClick={() => navigate('/welcome')}
+                  sx={{ fontFamily: MONO, fontSize: 10.5, display: { xs: 'none', md: 'inline-flex' }, cursor: 'pointer' }}
+                />
+              </Tooltip>
+            ) : null}
+            {user ? (
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                <Tooltip title={`${user.issuer} · roles: ${user.roles.join(', ') || 'none'} · click for the console chooser`}>
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    icon={<PersonRoundedIcon />}
+                    label={`${user.name}${user.admin ? ' · admin' : ''}`}
+                    onClick={() => navigate('/welcome')}
+                    sx={{ fontFamily: MONO, fontSize: 11, cursor: 'pointer' }}
+                  />
+                </Tooltip>
+                <Tooltip title="sign out">
+                  <IconButton size="small" onClick={onLogout} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                    <LogoutRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            ) : null}
             <Tooltip title="open a quick-create sandbox">
               <Button
                 size="small"
@@ -547,7 +597,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             py: { xs: 2, md: 3 },
           }}
         >
-          {children}
+          <Box sx={{ width: '100%', maxWidth: 1680, mx: 'auto' }}>{children}</Box>
         </Box>
       </Box>
 
@@ -561,7 +611,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={(e) => e.stopPropagation()}
             sx={{
               width: 'min(560px, 92vw)',
-              borderRadius: 3,
+              borderRadius: 0.5,
               border: '1px solid',
               borderColor: 'divider',
               bgcolor: 'background.paper',

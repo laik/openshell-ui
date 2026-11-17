@@ -33,6 +33,7 @@ import {
   ErrorNote,
   LoadingBlock,
   Mono,
+  PageHeader,
   Panel,
   SectionLabel,
 } from '../components/ui';
@@ -46,22 +47,20 @@ export default function Templates() {
 
   return (
     <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}>
-        <Box>
-          <Typography variant="h2">Templates</Typography>
-          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', fontFamily: MONO }}>
-            reusable workload specs — image, resources, env — applied with `sandbox create --template`
-          </Typography>
-        </Box>
-        <Stack direction="row" spacing={1}>
-          <IconButton onClick={state.reload} sx={{ border: '1px solid', borderColor: 'divider' }}>
-            <RefreshRoundedIcon />
-          </IconButton>
-          <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setOpen(true)}>
-            new template
-          </Button>
-        </Stack>
-      </Stack>
+      <PageHeader
+        title="Templates"
+        description="Reusable workload specs — image, resources, env — applied with sandbox create --template."
+        actions={
+          <>
+            <IconButton onClick={state.reload} sx={{ border: '1px solid', borderColor: 'divider' }}>
+              <RefreshRoundedIcon />
+            </IconButton>
+            <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setOpen(true)}>
+              new template
+            </Button>
+          </>
+        }
+      />
 
       <Panel sx={{ p: 0, overflow: 'hidden' }}>
         {state.loading ? (
@@ -240,7 +239,7 @@ function TemplateDialog({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>new template</DialogTitle>
+      <DialogTitle>New template</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 0.5 }}>
           <TextField

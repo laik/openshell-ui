@@ -40,6 +40,7 @@ import {
   ErrorNote,
   LoadingBlock,
   Mono,
+  PageHeader,
   Panel,
   SectionLabel,
 } from '../components/ui';
@@ -121,58 +122,56 @@ export default function Approvals() {
 
   return (
     <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ alignItems: { md: 'flex-end' } }}>
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="h2">Approvals</Typography>
-          <Typography sx={{ fontSize: 12.5, color: 'text.secondary', fontFamily: MONO, mt: 0.4 }}>
-            the gateway proposes network rules when a sandbox is denied; approve the ones the workload needs
-          </Typography>
-        </Box>
-        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-          {sandbox ? (
+      <PageHeader
+        title="Approvals"
+        description="The gateway proposes network rules when a sandbox is denied. Review the endpoints and rationale, then approve only what the workload needs."
+        actions={
+          <>
+            {sandbox ? (
+              <Button
+                size="small"
+                variant="outlined"
+                color="inherit"
+                startIcon={<HistoryRoundedIcon />}
+                onClick={() => setHistoryOpen(true)}
+              >
+                history
+              </Button>
+            ) : null}
             <Button
               size="small"
               variant="outlined"
               color="inherit"
-              startIcon={<HistoryRoundedIcon />}
-              onClick={() => setHistoryOpen(true)}
+              startIcon={<DeleteSweepRoundedIcon />}
+              disabled={!sandbox || pendingRules.length === 0}
+              onClick={() => setClearing(true)}
             >
-              history
+              clear pending
             </Button>
-          ) : null}
-          <Button
-            size="small"
-            variant="outlined"
-            color="inherit"
-            startIcon={<DeleteSweepRoundedIcon />}
-            disabled={!sandbox || pendingRules.length === 0}
-            onClick={() => setClearing(true)}
-          >
-            clear pending
-          </Button>
-          <Button
-            size="small"
-            variant="contained"
-            startIcon={<DoneAllRoundedIcon />}
-            disabled={!sandbox || pendingRules.length === 0}
-            onClick={() => {
-              setIncludeFlagged(false);
-              setApprovingAll(sandbox);
-            }}
-          >
-            approve all
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
-            color="inherit"
-            startIcon={<RefreshRoundedIcon />}
-            onClick={data.reload}
-          >
-            refresh
-          </Button>
-        </Stack>
-      </Stack>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<DoneAllRoundedIcon />}
+              disabled={!sandbox || pendingRules.length === 0}
+              onClick={() => {
+                setIncludeFlagged(false);
+                setApprovingAll(sandbox);
+              }}
+            >
+              approve all
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="inherit"
+              startIcon={<RefreshRoundedIcon />}
+              onClick={data.reload}
+            >
+              refresh
+            </Button>
+          </>
+        }
+      />
 
       <Panel dense>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
@@ -250,7 +249,7 @@ export default function Approvals() {
 
       <Grid container spacing={2}>
         {grouped.map(([sandboxName, list]) => (
-          <Grid key={sandboxName} size={{ xs: 12, xl: 6 }}>
+          <Grid key={sandboxName} size={{ xs: 12, xl: grouped.length > 1 ? 6 : 12 }}>
             <Panel>
               <SectionLabel
                 right={

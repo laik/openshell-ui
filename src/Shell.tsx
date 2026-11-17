@@ -54,7 +54,8 @@ export function ShellProvider({ children }: { children: ReactNode }) {
     [scopes, toast, dark, setDark],
   );
 
-  const active = toasts[0];
+  // show the newest toast; older ones stay queued until dismissed/auto-hidden
+  const active = toasts[toasts.length - 1];
 
   return (
     <ShellContext.Provider value={value}>
