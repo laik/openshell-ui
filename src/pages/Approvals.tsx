@@ -33,11 +33,14 @@ import { api } from '../api/client';
 import { useAsync } from '../hooks';
 import { useShell } from '../Shell';
 import { MONO } from '../theme';
+import { cliFor } from '../lib/cli';
 import type { NetworkRule, RuleHistoryEntry } from '../api/types';
 import {
+  CommandPreview,
   ConfirmDialog,
   EmptyState,
   ErrorNote,
+  HintTip,
   LoadingBlock,
   Mono,
   PageHeader,
@@ -98,6 +101,24 @@ export default function Approvals() {
   const securityFlagged = rules.some((r) => r.security.trim() !== '');
   const changed = () => window.dispatchEvent(new Event('openshell:rules-changed'));
 
+  // The exact argv the bridge will run for each of these dialogs, kept live so
+  // the preview tracks the checkbox / reason the user is filling in.
+  const approveAllCommand = useMemo(
+    () => (approvingAll ? cliFor.sandbox.approveAllRules(approvingAll, includeFlagged, scope) : null),
+    [approvingAll, includeFlagged, scope],
+  );
+  const clearCommand = useMemo(
+    () => (sandbox ? cliFor.sandbox.clearRules(sandbox, scope) : null),
+    [sandbox, scope],
+  );
+  const rejectCommand = useMemo(
+    () =>
+      rejecting?.sandbox
+        ? cliFor.sandbox.rejectRule(rejecting.sandbox, rejecting.chunk_id, scope, reason.trim() || undefined)
+        : null,
+    [rejecting, reason, scope],
+  );
+
   const act = async (rule: NetworkRule, action: 'approve' | 'reject', why = '') => {
     if (!rule.sandbox) return;
     setBusyRule(rule.chunk_id);
@@ -128,47 +149,70 @@ export default function Approvals() {
         actions={
           <>
             {sandbox ? (
+              <HintTip
+                title="read the recorded rule decisions for this sandbox"
+                command={cliFor.reads.ruleHistory(sandbox, scope)}
+              >
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="inherit"
+                  startIcon={<HistoryRoundedIcon />}
+                  onClick={() => setHistoryOpen(true)}
+                >
+                  history
+                </Button>
+              </HintTip>
+            ) : null}
+            <HintTip title="discard every pending draft rule on this sandbox" command={clearCommand}>
               <Button
                 size="small"
                 variant="outlined"
                 color="inherit"
-                startIcon={<HistoryRoundedIcon />}
-                onClick={() => setHistoryOpen(true)}
+                startIcon={<DeleteSweepRoundedIcon />}
+                disabled={!sandbox || pendingRules.length === 0}
+                onClick={() => setClearing(true)}
               >
-                history
+                clear pending
               </Button>
-            ) : null}
-            <Button
-              size="small"
-              variant="outlined"
-              color="inherit"
-              startIcon={<DeleteSweepRoundedIcon />}
-              disabled={!sandbox || pendingRules.length === 0}
-              onClick={() => setClearing(true)}
+            </HintTip>
+            <HintTip
+              title="add every pending draft rule on this sandbox to its policy"
+              command={sandbox ? cliFor.sandbox.approveAllRules(sandbox, includeFlagged, scope) : null}
             >
-              clear pending
-            </Button>
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<DoneAllRoundedIcon />}
-              disabled={!sandbox || pendingRules.length === 0}
-              onClick={() => {
-                setIncludeFlagged(false);
-                setApprovingAll(sandbox);
-              }}
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<DoneAllRoundedIcon />}
+                disabled={!sandbox || pendingRules.length === 0}
+                onClick={() => {
+                  setIncludeFlagged(false);
+                  setApprovingAll(sandbox);
+                }}
+              >
+                approve all
+              </Button>
+            </HintTip>
+            <HintTip
+              title="re-read the rules in this scope"
+              // Unfiltered, the bridge lists the live sandboxes first and then
+              // runs `rule get` for each — that listing is the command it starts with.
+              command={
+                sandbox
+                  ? cliFor.reads.ruleList(sandbox, scope, status || undefined)
+                  : cliFor.sandbox.list(scope)
+              }
             >
-              approve all
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              color="inherit"
-              startIcon={<RefreshRoundedIcon />}
-              onClick={data.reload}
-            >
-              refresh
-            </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="inherit"
+                startIcon={<RefreshRoundedIcon />}
+                onClick={data.reload}
+              >
+                refresh
+              </Button>
+            </HintTip>
           </>
         }
       />
@@ -256,17 +300,22 @@ export default function Approvals() {
                   <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
                     <Chip size="small" label={`${list.length} rule${list.length === 1 ? '' : 's'}`} variant="outlined" />
                     {list.some((r) => r.status === 'pending') ? (
-                      <Button
-                        size="small"
-                        startIcon={<DoneAllRoundedIcon />}
-                        onClick={() => {
-                          setSandbox(sandboxName);
-                          setIncludeFlagged(false);
-                          setApprovingAll(sandboxName);
-                        }}
+                      <HintTip
+                        title="add every pending draft rule on this sandbox to its policy"
+                        command={cliFor.sandbox.approveAllRules(sandboxName, includeFlagged, scope)}
                       >
-                        approve all
-                      </Button>
+                        <Button
+                          size="small"
+                          startIcon={<DoneAllRoundedIcon />}
+                          onClick={() => {
+                            setSandbox(sandboxName);
+                            setIncludeFlagged(false);
+                            setApprovingAll(sandboxName);
+                          }}
+                        >
+                          approve all
+                        </Button>
+                      </HintTip>
                     ) : null}
                   </Stack>
                 }
@@ -279,6 +328,12 @@ export default function Approvals() {
                     key={`${rule.sandbox}-${rule.chunk_id}`}
                     rule={rule}
                     busy={busyRule === rule.chunk_id}
+                    approveCommand={
+                      rule.sandbox ? cliFor.sandbox.approveRule(rule.sandbox, rule.chunk_id, scope) : null
+                    }
+                    rejectCommand={
+                      rule.sandbox ? cliFor.sandbox.rejectRule(rule.sandbox, rule.chunk_id, scope) : null
+                    }
                     onApprove={() => act(rule, 'approve')}
                     onReject={() => {
                       setRejecting(rule);
@@ -311,18 +366,21 @@ export default function Approvals() {
             />
           </Stack>
         </DialogContent>
+        <CommandPreview command={rejectCommand} divider />
         <DialogActions sx={{ p: 2, pt: 1 }}>
           <Button color="inherit" onClick={() => setRejecting(null)}>
             cancel
           </Button>
-          <Button
-            variant="contained"
-            color="error"
-            disabled={Boolean(busyRule)}
-            onClick={() => rejecting && act(rejecting, 'reject', reason.trim())}
-          >
-            reject rule
-          </Button>
+          <HintTip title="reject this rule" command={rejectCommand}>
+            <Button
+              variant="contained"
+              color="error"
+              disabled={Boolean(busyRule)}
+              onClick={() => rejecting && act(rejecting, 'reject', reason.trim())}
+            >
+              reject rule
+            </Button>
+          </HintTip>
         </DialogActions>
       </Dialog>
 
@@ -346,6 +404,7 @@ export default function Approvals() {
           </Stack>
         }
         confirmLabel="approve all"
+        command={approveAllCommand}
         onCancel={() => setApprovingAll(null)}
         onConfirm={async () => {
           const name = approvingAll;
@@ -373,6 +432,7 @@ export default function Approvals() {
         }
         confirmLabel="clear pending"
         danger
+        command={clearCommand}
         onCancel={() => setClearing(false)}
         onConfirm={async () => {
           setClearing(false);
@@ -431,11 +491,16 @@ export default function Approvals() {
 function RuleCard({
   rule,
   busy,
+  approveCommand,
+  rejectCommand,
   onApprove,
   onReject,
 }: {
   rule: NetworkRule;
   busy: boolean;
+  /** Command the bridge runs for the matching button; null when the rule has no sandbox. */
+  approveCommand?: string | null;
+  rejectCommand?: string | null;
   onApprove: () => void;
   onReject: () => void;
 }) {
@@ -509,26 +574,30 @@ function RuleCard({
           <>
             <Divider />
             <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-              <Button
-                size="small"
-                variant="contained"
-                color="success"
-                startIcon={busy ? <CircularProgress size={13} color="inherit" /> : <CheckCircleOutlineRoundedIcon />}
-                disabled={busy}
-                onClick={onApprove}
-              >
-                approve
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                color="error"
-                startIcon={<BlockRoundedIcon />}
-                disabled={busy}
-                onClick={onReject}
-              >
-                reject
-              </Button>
+              <HintTip title={`approve ${rule.name || rule.chunk_id.slice(0, 8)}`} command={approveCommand}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="success"
+                  startIcon={busy ? <CircularProgress size={13} color="inherit" /> : <CheckCircleOutlineRoundedIcon />}
+                  disabled={busy}
+                  onClick={onApprove}
+                >
+                  approve
+                </Button>
+              </HintTip>
+              <HintTip title={`reject ${rule.name || rule.chunk_id.slice(0, 8)}`} command={rejectCommand}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  startIcon={<BlockRoundedIcon />}
+                  disabled={busy}
+                  onClick={onReject}
+                >
+                  reject
+                </Button>
+              </HintTip>
               <Box sx={{ flex: 1 }} />
               <Mono dim sx={{ fontSize: 10 }}>
                 {rule.chunk_id.slice(0, 8)} · {rule.sandbox}

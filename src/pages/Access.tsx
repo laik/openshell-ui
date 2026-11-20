@@ -11,9 +11,11 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAsync } from '../hooks';
 import { useShell } from '../Shell';
+import { cliFor } from '../lib/cli';
 import { MONO } from '../theme';
 import {
   ErrorNote,
+  HintTip,
   LoadingBlock,
   Mono,
   PageHeader,
@@ -243,19 +245,24 @@ function SessionPanel() {
               operate as (session role)
             </Typography>
             {u.roles.length > 1 ? (
-              <ToggleButtonGroup
-                exclusive
-                size="small"
-                value={u.activeRole}
-                disabled={busy}
-                onChange={(_e, v) => v && switchRole(v)}
+              <HintTip
+                title="switch the role this console session operates with"
+                command={cliFor.gateways.authRole()}
               >
-                {u.roles.map((r) => (
-                  <ToggleButton key={r} value={r} sx={{ fontFamily: MONO, fontSize: 12 }}>
-                    {r}
-                  </ToggleButton>
-                ))}
-              </ToggleButtonGroup>
+                <ToggleButtonGroup
+                  exclusive
+                  size="small"
+                  value={u.activeRole}
+                  disabled={busy}
+                  onChange={(_e, v) => v && switchRole(v)}
+                >
+                  {u.roles.map((r) => (
+                    <ToggleButton key={r} value={r} sx={{ fontFamily: MONO, fontSize: 12 }}>
+                      {r}
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+              </HintTip>
             ) : (
               <Chip size="small" label={u.activeRole ?? 'no role'} variant="outlined" sx={{ fontFamily: MONO, fontSize: 11, alignSelf: 'flex-start' }} />
             )}

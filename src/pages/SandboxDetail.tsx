@@ -50,13 +50,16 @@ import { useAsync, useNow } from '../hooks';
 import { useShell } from '../Shell';
 import { MONO } from '../theme';
 import { allowedActions, failureHint, phaseStyle } from '../lib/phases';
+import { cliFor } from '../lib/cli';
 import { durationBetween, fullTime, parseGatewayTime, relativeTime } from '../lib/format';
 import {
   CodeBlock,
+  CommandPreview,
   ConfirmDialog,
   CopyButton,
   EmptyState,
   ErrorNote,
+  HintTip,
   LoadingBlock,
   Mono,
   Panel,
@@ -131,7 +134,7 @@ export default function SandboxDetail() {
         <ErrorNote
           message={state.error ?? `sandbox ${name} not found`}
           onRetry={state.reload}
-          hint={`openshell sandbox get ${name} -o json`}
+          hint={cliFor.sandbox.get(name, scope)}
         />
       </Stack>
     );
@@ -193,35 +196,43 @@ export default function SandboxDetail() {
               </Button>
             ) : null}
             {acts?.start ? (
-              <Button startIcon={<PlayArrowRoundedIcon />} onClick={() => act('start')} disabled={pending === 'start'}>
-                start
-              </Button>
+              <HintTip title="start (preserves the workspace)" command={cliFor.sandbox.action(sandbox.name, 'start', scope)}>
+                <Button startIcon={<PlayArrowRoundedIcon />} onClick={() => act('start')} disabled={pending === 'start'}>
+                  start
+                </Button>
+              </HintTip>
             ) : null}
             {acts?.resume ? (
-              <Button startIcon={<BoltRoundedIcon />} onClick={() => act('resume')} disabled={pending === 'resume'}>
-                resume
-              </Button>
+              <HintTip title="resume from memory state" command={cliFor.sandbox.action(sandbox.name, 'resume', scope)}>
+                <Button startIcon={<BoltRoundedIcon />} onClick={() => act('resume')} disabled={pending === 'resume'}>
+                  resume
+                </Button>
+              </HintTip>
             ) : null}
             {acts?.suspend ? (
-              <Button startIcon={<PauseRoundedIcon />} onClick={() => act('suspend')} disabled={pending === 'suspend'}>
-                suspend
-              </Button>
+              <HintTip title="suspend (retain memory)" command={cliFor.sandbox.action(sandbox.name, 'suspend', scope)}>
+                <Button startIcon={<PauseRoundedIcon />} onClick={() => act('suspend')} disabled={pending === 'suspend'}>
+                  suspend
+                </Button>
+              </HintTip>
             ) : null}
             {acts?.stop ? (
-              <Button startIcon={<StopRoundedIcon />} onClick={() => act('stop')} disabled={pending === 'stop'}>
-                stop
-              </Button>
+              <HintTip title="stop (preserve workspace)" command={cliFor.sandbox.action(sandbox.name, 'stop', scope)}>
+                <Button startIcon={<StopRoundedIcon />} onClick={() => act('stop')} disabled={pending === 'stop'}>
+                  stop
+                </Button>
+              </HintTip>
             ) : null}
-            <IconButton onClick={state.reload} sx={{ border: '1px solid', borderColor: 'divider' }}>
-              <RefreshRoundedIcon />
-            </IconButton>
-            <Button
-              color="error"
-              startIcon={<DeleteOutlineRoundedIcon />}
-              onClick={() => setConfirmDelete(true)}
-            >
-              delete
-            </Button>
+            <HintTip title="re-read this sandbox" command={cliFor.sandbox.get(sandbox.name, scope)}>
+              <IconButton onClick={state.reload} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                <RefreshRoundedIcon />
+              </IconButton>
+            </HintTip>
+            <HintTip title="delete this sandbox" command={cliFor.sandbox.remove(sandbox.name, scope)}>
+              <Button color="error" startIcon={<DeleteOutlineRoundedIcon />} onClick={() => setConfirmDelete(true)}>
+                delete
+              </Button>
+            </HintTip>
           </Stack>
         </Grid>
       </Grid>
@@ -307,6 +318,7 @@ export default function SandboxDetail() {
         body="The sandbox and its workspace are removed."
         confirmLabel="delete"
         danger
+        command={cliFor.sandbox.remove(sandbox.name, scope)}
         onCancel={() => setConfirmDelete(false)}
         onConfirm={() => {
           setConfirmDelete(false);
@@ -626,9 +638,11 @@ function OverviewTab({
           <Panel>
             <SectionLabel
               right={
-                <IconButton size="small" onClick={settings.reload}>
-                  <RefreshRoundedIcon fontSize="small" />
-                </IconButton>
+                <HintTip title="re-read settings" command={cliFor.sandbox.settingsGet(sandbox.name, scope)}>
+                  <IconButton size="small" onClick={settings.reload}>
+                    <RefreshRoundedIcon fontSize="small" />
+                  </IconButton>
+                </HintTip>
               }
             >
               settings
@@ -643,22 +657,24 @@ function OverviewTab({
                   {row.source ? (
                     <Chip size="small" label={row.source} variant="outlined" sx={{ fontFamily: MONO, fontSize: 9.5 }} />
                   ) : null}
-                  <IconButton
-                    size="small"
-                    color="error"
-                    title="delete setting"
-                    onClick={async () => {
-                      try {
-                        await api.deleteSetting(sandbox.name, row.key, scope);
-                        toast(`deleted setting ${row.key}`);
-                        settings.reload();
-                      } catch (err) {
-                        toast('delete setting failed', { kind: 'err', detail: (err as Error).message });
-                      }
-                    }}
-                  >
-                    <DeleteOutlineRoundedIcon sx={{ fontSize: 15 }} />
-                  </IconButton>
+                  <HintTip title="delete setting" command={cliFor.sandbox.deleteSetting(sandbox.name, row.key, scope)}>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      title="delete setting"
+                      onClick={async () => {
+                        try {
+                          await api.deleteSetting(sandbox.name, row.key, scope);
+                          toast(`deleted setting ${row.key}`);
+                          settings.reload();
+                        } catch (err) {
+                          toast('delete setting failed', { kind: 'err', detail: (err as Error).message });
+                        }
+                      }}
+                    >
+                      <DeleteOutlineRoundedIcon sx={{ fontSize: 15 }} />
+                    </IconButton>
+                  </HintTip>
                 </Stack>
               ))}
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1, alignItems: { sm: 'center' } }}>
@@ -687,22 +703,27 @@ function OverviewTab({
                   sx={{ width: 140 }}
                   slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
                 />
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="inherit"
-                  onClick={async () => {
-                    try {
-                      await api.setSetting(sandbox.name, settingKey, settingValue, scope);
-                      toast(`set ${settingKey}=${settingValue}`);
-                      settings.reload();
-                    } catch (err) {
-                      toast('set setting failed', { kind: 'err', detail: (err as Error).message });
-                    }
-                  }}
+                <HintTip
+                  title="write this setting"
+                  command={cliFor.sandbox.setSetting(sandbox.name, settingKey, settingValue, scope)}
                 >
-                  set
-                </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="inherit"
+                    onClick={async () => {
+                      try {
+                        await api.setSetting(sandbox.name, settingKey, settingValue, scope);
+                        toast(`set ${settingKey}=${settingValue}`);
+                        settings.reload();
+                      } catch (err) {
+                        toast('set setting failed', { kind: 'err', detail: (err as Error).message });
+                      }
+                    }}
+                  >
+                    set
+                  </Button>
+                </HintTip>
               </Stack>
               <Typography sx={{ fontSize: 11, color: 'text.secondary', lineHeight: 1.5 }}>
                 agent_policy_proposals_enabled=true makes denied connections appear under Approvals.
@@ -768,7 +789,7 @@ function ExecTab({
   return (
     <Stack spacing={2}>
       <Panel>
-        <SectionLabel>openshell sandbox exec {name} -- …</SectionLabel>
+        <SectionLabel>run a command in {name}</SectionLabel>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
           <TextField
             fullWidth
@@ -780,10 +801,15 @@ function ExecTab({
             }}
             slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
           />
-          <Button variant="contained" startIcon={<PlayCircleRoundedIcon />} onClick={run} disabled={busy}>
-            {busy ? 'running…' : 'run'}
-          </Button>
+          <HintTip title="run this command in the sandbox" command={cliFor.sandbox.exec(name, command, scope)}>
+            <Button variant="contained" startIcon={<PlayCircleRoundedIcon />} onClick={run} disabled={busy}>
+              {busy ? 'running…' : 'run'}
+            </Button>
+          </HintTip>
         </Stack>
+        <Box sx={{ mt: 1.5 }}>
+          <CommandPreview command={cliFor.sandbox.exec(name, command, scope)} label="openshell command" maxHeight={110} />
+        </Box>
         <Typography sx={{ mt: 1, fontSize: 11.5, color: 'text.secondary', lineHeight: 1.55 }}>
           non-interactive; stdin is closed. The CLI sources the sandbox’s login/profile startup files, and lines that
           need shell syntax use the sandbox’s own{' '}
@@ -921,9 +947,11 @@ function LogsTab({ name, scope }: { name: string; scope: { gateway?: string; wor
           >
             {auto ? 'auto' : 'paused'}
           </Button>
-          <IconButton onClick={state.reload} sx={{ border: '1px solid', borderColor: 'divider' }}>
-            <RefreshRoundedIcon fontSize="small" />
-          </IconButton>
+          <HintTip title="read these logs again" command={cliFor.sandbox.logs(name, scope, { lines, level, source })}>
+            <IconButton onClick={state.reload} sx={{ border: '1px solid', borderColor: 'divider' }}>
+              <RefreshRoundedIcon fontSize="small" />
+            </IconButton>
+          </HintTip>
         </Stack>
       </Stack>
 
@@ -977,12 +1005,12 @@ function PolicyTab({
   >(null);
   const [removing, setRemoving] = useState(false);
 
-  const removalCommand = (r: NonNullable<typeof removal>): string => {
-    const prefix = `openshell${scope.gateway ? ` --gateway ${scope.gateway}` : ''}${scope.workspace ? ` --workspace ${scope.workspace}` : ''}`;
-    if (r.kind === 'rule') return `${prefix} policy update ${name} --remove-rule ${r.rule} --wait`;
-    if (r.kind === 'endpoint') return `${prefix} policy update ${name} --remove-endpoint ${r.target} --wait`;
-    return `${prefix} policy set ${name} --policy policy.yaml --wait`;
-  };
+  const removalCommand = (r: NonNullable<typeof removal>): string =>
+    r.kind === 'rule'
+      ? cliFor.sandbox.updatePolicy(name, { removeRules: [r.rule], wait: true }, scope)[0]
+      : r.kind === 'endpoint'
+        ? cliFor.sandbox.updatePolicy(name, { removeEndpoints: [r.target], wait: true }, scope)[0]
+        : cliFor.sandbox.setPolicy(name, scope, true);
 
   const doRemoval = async () => {
     if (!removal || removing) return;
@@ -1061,7 +1089,10 @@ function PolicyTab({
                     <Mono dim sx={{ fontSize: 10.5 }}>
                       {(rule.endpoints ?? []).length} endpoint{(rule.endpoints ?? []).length === 1 ? '' : 's'}
                     </Mono>
-                    <Tooltip title="remove the whole rule from the live policy">
+                    <HintTip
+                      title="remove the whole rule from the live policy"
+                      command={cliFor.sandbox.updatePolicy(name, { removeRules: [ruleName], wait: true }, scope)}
+                    >
                       <IconButton
                         size="small"
                         color="error"
@@ -1069,10 +1100,12 @@ function PolicyTab({
                       >
                         <DeleteOutlineRoundedIcon sx={{ fontSize: 15 }} />
                       </IconButton>
-                    </Tooltip>
+                    </HintTip>
                   </Stack>
                   <Stack spacing={0.6} sx={{ mt: 0.75 }}>
-                    {(rule.endpoints ?? []).map((e, i) => (
+                    {(rule.endpoints ?? []).map((e, i) => {
+                      const target = `${e.host}:${e.port ?? (e.ports ?? [])[0] ?? ''}`;
+                      return (
                       <Stack
                         key={i}
                         direction="row"
@@ -1104,23 +1137,21 @@ function PolicyTab({
                             sx={{ fontFamily: MONO, fontSize: 10 }}
                           />
                         ))}
-                        <Tooltip title="remove this endpoint from the live policy">
+                        <HintTip
+                          title="remove this endpoint from the live policy"
+                          command={cliFor.sandbox.updatePolicy(name, { removeEndpoints: [target], wait: true }, scope)}
+                        >
                           <IconButton
                             size="small"
                             color="error"
-                            onClick={() =>
-                              setRemoval({
-                                kind: 'endpoint',
-                                rule: ruleName,
-                                target: `${e.host}:${e.port ?? (e.ports ?? [])[0] ?? ''}`,
-                              })
-                            }
+                            onClick={() => setRemoval({ kind: 'endpoint', rule: ruleName, target })}
                           >
                             <DeleteOutlineRoundedIcon sx={{ fontSize: 14 }} />
                           </IconButton>
-                        </Tooltip>
+                        </HintTip>
                       </Stack>
-                    ))}
+                      );
+                    })}
                     {(rule.binaries ?? []).length ? (
                       <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
                         {(rule.binaries ?? []).map((b, i) => (
@@ -1245,11 +1276,11 @@ function PolicyTab({
                   ? 'The endpoint is removed from the live policy; matchers attached to it go with it.'
                   : 'Only this matcher is removed; the rest of the policy is preserved via a full policy set.'}
             </Typography>
-            {removal ? <CodeBlock value={removalCommand(removal)} maxHeight={80} /> : null}
           </Stack>
         }
         confirmLabel={removing ? 'removing…' : 'remove'}
         danger
+        command={removal ? removalCommand(removal) : null}
         onCancel={() => setRemoval(null)}
         onConfirm={doRemoval}
       />
@@ -1426,36 +1457,26 @@ function PolicyDialog({
     setAllowedIp(base.allowedIp);
   };
 
-  const scopePrefix = useMemo(() => {
-    const p: string[] = [];
-    if (scope.gateway) p.push('--gateway', scope.gateway);
-    if (scope.workspace) p.push('--workspace', scope.workspace);
-    return p;
-  }, [scope.gateway, scope.workspace]);
+  /** The exact body `submit()` sends, so the preview below can never drift from it. */
+  const updateBody = useMemo(
+    () => ({
+      addEndpoints: host.trim() && port.trim() ? [endpointSpec] : [],
+      binaries: binaryList,
+      ruleName: ruleName.trim() || undefined,
+      anyBinary: anyBinary || undefined,
+      endpointPath: allows.length ? endpointPath.trim() || undefined : undefined,
+      addAllow: allows.map((r) => `${host.trim()}:${port.trim()}:${r.method}:${r.path.trim()}`),
+      dryRun: dryRun || undefined,
+      wait: wait || undefined,
+    }),
+    [host, port, endpointSpec, binaryList, ruleName, anyBinary, endpointPath, allows, dryRun, wait],
+  );
 
-  const preview = useMemo(() => {
-    if (mode === 'yaml' || mode === 'filesystem') {
-      return ['openshell', ...scopePrefix, 'policy', 'set', name, '--policy', 'policy.yaml', ...(wait ? ['--wait'] : [])].join(' ');
-    }
-    const base = ['openshell', ...scopePrefix, 'policy', 'update', name];
-    const binArgs = binaryList.flatMap((b) => ['--binary', b]);
-    const nameArgs = ruleName.trim() ? ['--rule-name', ruleName.trim()] : [];
-    const flagArgs = dryRun ? ['--dry-run'] : wait ? ['--wait'] : [];
-    const epArgs = host.trim() && port.trim() ? ['--add-endpoint', endpointSpec] : [];
-    const l7Args = [
-      ...(anyBinary && allows.length ? ['--any-binary'] : []),
-      ...(endpointPath.trim() && allows.length ? ['--endpoint-path', endpointPath.trim()] : []),
-      ...allows.flatMap((r) => ['--add-allow', `${host.trim()}:${port.trim()}:${r.method}:${r.path.trim()}`]),
-    ];
-    // The CLI forbids --add-endpoint together with --add-allow: two sequential updates.
-    if (epArgs.length && l7Args.length) {
-      return [
-        [...base, ...epArgs, ...binArgs, ...nameArgs, ...flagArgs].join(' '),
-        [...base, ...binArgs, ...nameArgs, ...l7Args, ...flagArgs].join(' '),
-      ].join('\n');
-    }
-    return [...base, ...epArgs, ...binArgs, ...nameArgs, ...l7Args, ...flagArgs].join(' ');
-  }, [mode, scopePrefix, name, host, port, endpointSpec, binaryList, ruleName, anyBinary, endpointPath, allows, dryRun, wait]);
+  /** The bridge runs `policy set` for the YAML/filesystem tabs, `policy update` otherwise. */
+  const preview = useMemo(
+    () => (mode === 'yaml' || mode === 'filesystem' ? cliFor.sandbox.setPolicy(name, scope, wait) : cliFor.sandbox.updatePolicy(name, updateBody, scope)),
+    [mode, name, scope, wait, updateBody],
+  );
 
   const l7Ok = allows.length === 0 || (Boolean(ruleName.trim()) && (anyBinary || binaryList.length > 0));
   const canSubmit =
@@ -1490,20 +1511,7 @@ function PolicyDialog({
         onApplied();
         onClose();
       } else {
-        const res = await api.updatePolicy(
-          name,
-          {
-            addEndpoints: [endpointSpec],
-            binaries: binaryList,
-            ruleName: ruleName.trim() || undefined,
-            anyBinary: anyBinary || undefined,
-            endpointPath: allows.length ? endpointPath.trim() || undefined : undefined,
-            addAllow: allows.map((r) => `${host.trim()}:${port.trim()}:${r.method}:${r.path.trim()}`),
-            dryRun: dryRun || undefined,
-            wait: wait || undefined,
-          },
-          scope,
-        );
+        const res = await api.updatePolicy(name, updateBody, scope);
         if (dryRun) {
           setOutput(res.output);
           toast('dry-run preview ready', { kind: 'info' });
@@ -1888,10 +1896,7 @@ function PolicyDialog({
           {output ? <CodeBlock value={output} maxHeight={220} /> : null}
         </Stack>
       </DialogContent>
-      <Box sx={{ px: 3, pt: 1.5, pb: 0.5, borderTop: '1px solid', borderColor: 'divider' }}>
-        <SectionLabel>openshell command</SectionLabel>
-        <CodeBlock value={preview} maxHeight={96} />
-      </Box>
+      <CommandPreview command={preview} divider />
       <DialogActions sx={{ p: 2, pt: 1 }}>
         <Button color="inherit" onClick={onClose} disabled={busy}>
           cancel
@@ -1955,9 +1960,14 @@ function NetworkTab({
                 onChange={(e) => setService(e.target.value)}
                 slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
               />
-              <Button variant="contained" onClick={expose} disabled={busy}>
-                expose
-              </Button>
+              <HintTip
+                title="publish this loopback port through the gateway"
+                command={cliFor.sandbox.exposeService(name, port, scope, service.trim() || undefined)}
+              >
+                <Button variant="contained" onClick={expose} disabled={busy}>
+                  expose
+                </Button>
+              </HintTip>
             </Stack>
             <Divider />
             {services.length === 0 ? (
@@ -1979,20 +1989,25 @@ function NetworkTab({
                         variant="outlined"
                       />
                       <Box sx={{ flex: 1 }} />
-                      <Button
-                        size="small"
-                        color="error"
-                        onClick={async () => {
-                          try {
-                            await api.deleteService(name, s.service, scope);
-                            toast('service removed');
-                          } catch (err) {
-                            toast('delete failed', { kind: 'err', detail: (err as Error).message });
-                          }
-                        }}
+                      <HintTip
+                        title="stop publishing this service"
+                        command={cliFor.sandbox.deleteService(name, s.service, scope)}
                       >
-                        remove
-                      </Button>
+                        <Button
+                          size="small"
+                          color="error"
+                          onClick={async () => {
+                            try {
+                              await api.deleteService(name, s.service, scope);
+                              toast('service removed');
+                            } catch (err) {
+                              toast('delete failed', { kind: 'err', detail: (err as Error).message });
+                            }
+                          }}
+                        >
+                          remove
+                        </Button>
+                      </HintTip>
                     </Stack>
                     <Link href={s.url} target="_blank" rel="noreferrer" sx={{ fontFamily: MONO, fontSize: 12 }}>
                       {s.url}
@@ -2008,9 +2023,11 @@ function NetworkTab({
         <Panel>
           <SectionLabel
             right={
-              <Button size="small" color="inherit" onClick={forwards.reload}>
-                reload
-              </Button>
+              <HintTip title="re-read tracked forwards" command={cliFor.reads.forwardList(scope)}>
+                <Button size="small" color="inherit" onClick={forwards.reload}>
+                  reload
+                </Button>
+              </HintTip>
             }
           >
             port forwards
@@ -2028,21 +2045,26 @@ function NetworkTab({
                     <Mono sx={{ fontWeight: 620 }}>{String(f.local ?? f.target_port ?? '?')}</Mono>
                     <Mono dim>→ {String(f.target_host ?? '127.0.0.1')}:{String(f.target_port ?? '?')}</Mono>
                     <Box sx={{ flex: 1 }} />
-                    <Button
-                      size="small"
-                      color="error"
-                      onClick={async () => {
-                        try {
-                          await api.stopForward(String(f.local ?? f.target_port), name, scope);
-                          toast('forward stopped');
-                          forwards.reload();
-                        } catch (err) {
-                          toast('stop failed', { kind: 'err', detail: (err as Error).message });
-                        }
-                      }}
+                    <HintTip
+                      title="stop this port forward"
+                      command={cliFor.sandbox.stopForward(String(f.local ?? f.target_port), name, scope)}
                     >
-                      stop
-                    </Button>
+                      <Button
+                        size="small"
+                        color="error"
+                        onClick={async () => {
+                          try {
+                            await api.stopForward(String(f.local ?? f.target_port), name, scope);
+                            toast('forward stopped');
+                            forwards.reload();
+                          } catch (err) {
+                            toast('stop failed', { kind: 'err', detail: (err as Error).message });
+                          }
+                        }}
+                      >
+                        stop
+                      </Button>
+                    </HintTip>
                   </Stack>
                 </Box>
               ))}

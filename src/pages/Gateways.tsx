@@ -37,13 +37,16 @@ import WindowRoundedIcon from '@mui/icons-material/WindowRounded';
 import { api } from '../api/client';
 import { useAsync } from '../hooks';
 import { useShell } from '../Shell';
+import { cliFor } from '../lib/cli';
 import { MONO } from '../theme';
 import type { GatewayHealth, GatewayRecord } from '../api/types';
 import {
+  CommandPreview,
   ConfirmDialog,
   CopyButton,
   EmptyState,
   ErrorNote,
+  HintTip,
   LoadingBlock,
   Mono,
   PageHeader,
@@ -121,25 +124,32 @@ export default function Gateways() {
         description="Register, verify and switch between gateways. Tokens are written to the local CLI config, never kept in the browser."
         actions={
           <>
-            <Button
-              size="small"
-              variant="outlined"
-              color="inherit"
-              startIcon={probingAll ? <CircularProgress size={14} /> : <ShieldRoundedIcon />}
-              disabled={probingAll || gateways.length === 0}
-              onClick={checkAll}
+            <HintTip
+              title="check every registered gateway with openshell status"
+              command={gateways.map((g) => cliFor.gateways.probe(g.name))}
             >
-              check all
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              color="inherit"
-              startIcon={<RefreshRoundedIcon />}
-              onClick={state.reload}
-            >
-              refresh
-            </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="inherit"
+                startIcon={probingAll ? <CircularProgress size={14} /> : <ShieldRoundedIcon />}
+                disabled={probingAll || gateways.length === 0}
+                onClick={checkAll}
+              >
+                check all
+              </Button>
+            </HintTip>
+            <HintTip title="re-read the local gateway config" command={cliFor.reads.gatewayList()}>
+              <Button
+                size="small"
+                variant="outlined"
+                color="inherit"
+                startIcon={<RefreshRoundedIcon />}
+                onClick={state.reload}
+              >
+                refresh
+              </Button>
+            </HintTip>
             <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setAddOpen(true)}>
               add gateway
             </Button>
@@ -252,6 +262,7 @@ export default function Gateways() {
                     <Box sx={{ flex: 1 }} />
                     <HealthBadge
                       health={h}
+                      name={g.name}
                       loading={checking[g.name]}
                       onCheck={() => check(g.name)}
                     />
@@ -298,55 +309,59 @@ export default function Gateways() {
                       ) : null}
                     </Stack>
                     <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                      <Button
-                        size="small"
-                        variant={selected ? 'outlined' : 'contained'}
-                        startIcon={<SwapHorizRoundedIcon />}
-                        disabled={selected}
-                        onClick={async () => {
-                          try {
-                            await api.gateways.select(g.name);
-                            setGateway(g.name);
-                            toast(`scope switched to ${g.name}`);
-                            state.reload();
-                          } catch (err) {
-                            toast('could not select gateway', { kind: 'err', detail: (err as Error).message });
-                          }
-                        }}
+                      <HintTip
+                        title={`switch the console scope to ${g.name}`}
+                        command={cliFor.gateways.select(g.name)}
                       >
-                        {selected ? 'in scope' : g.active ? 'use' : 'switch to'}
-                      </Button>
+                        <Button
+                          size="small"
+                          variant={selected ? 'outlined' : 'contained'}
+                          startIcon={<SwapHorizRoundedIcon />}
+                          disabled={selected}
+                          onClick={async () => {
+                            try {
+                              await api.gateways.select(g.name);
+                              setGateway(g.name);
+                              toast(`scope switched to ${g.name}`);
+                              state.reload();
+                            } catch (err) {
+                              toast('could not select gateway', { kind: 'err', detail: (err as Error).message });
+                            }
+                          }}
+                        >
+                          {selected ? 'in scope' : g.active ? 'use' : 'switch to'}
+                        </Button>
+                      </HintTip>
                       {canToken ? (
-                        <IconButton size="small" title="update token" onClick={() => setTokenFor(g)}>
-                          <KeyRoundedIcon fontSize="small" />
-                        </IconButton>
+                        <HintTip title="update token" command={cliFor.gateways.setToken()}>
+                          <IconButton size="small" onClick={() => setTokenFor(g)}>
+                            <KeyRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </HintTip>
                       ) : null}
                       {canToken ? (
+                        <HintTip title="browser login" command={cliFor.gateways.login(g.name)}>
+                          <IconButton size="small" onClick={() => setConfirm({ kind: 'login', gateway: g })}>
+                            <LoginRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </HintTip>
+                      ) : null}
+                      {canToken ? (
+                        <HintTip title="log out" command={cliFor.gateways.logout(g.name)}>
+                          <IconButton size="small" onClick={() => setConfirm({ kind: 'logout', gateway: g })}>
+                            <LogoutRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </HintTip>
+                      ) : null}
+                      <HintTip title="remove gateway" command={cliFor.gateways.remove(g.name)}>
                         <IconButton
                           size="small"
-                          title="browser login"
-                          onClick={() => setConfirm({ kind: 'login', gateway: g })}
+                          color="error"
+                          onClick={() => setConfirm({ kind: 'remove', gateway: g })}
                         >
-                          <LoginRoundedIcon fontSize="small" />
+                          <DeleteOutlineRoundedIcon fontSize="small" />
                         </IconButton>
-                      ) : null}
-                      {canToken ? (
-                        <IconButton
-                          size="small"
-                          title="log out"
-                          onClick={() => setConfirm({ kind: 'logout', gateway: g })}
-                        >
-                          <LogoutRoundedIcon fontSize="small" />
-                        </IconButton>
-                      ) : null}
-                      <IconButton
-                        size="small"
-                        color="error"
-                        title="remove gateway"
-                        onClick={() => setConfirm({ kind: 'remove', gateway: g })}
-                      >
-                        <DeleteOutlineRoundedIcon fontSize="small" />
-                      </IconButton>
+                      </HintTip>
                     </Stack>
                   </Stack>
                 </Stack>
@@ -410,6 +425,15 @@ export default function Gateways() {
         }
         confirmLabel={confirm?.kind === 'remove' ? 'remove' : confirm?.kind === 'login' ? 'open browser' : 'log out'}
         danger={confirm?.kind === 'remove'}
+        command={
+          confirm
+            ? confirm.kind === 'remove'
+              ? cliFor.gateways.remove(confirm.gateway.name)
+              : confirm.kind === 'login'
+                ? cliFor.gateways.login(confirm.gateway.name)
+                : cliFor.gateways.logout(confirm.gateway.name)
+            : null
+        }
         onCancel={() => setConfirm(null)}
         onConfirm={async () => {
           const target = confirm;
@@ -442,13 +466,16 @@ export default function Gateways() {
 
 function HealthBadge({
   health,
+  name,
   loading,
   onCheck,
 }: {
   health: GatewayHealth | undefined;
+  name: string;
   loading?: boolean;
   onCheck: () => void;
 }) {
+  const probe = cliFor.gateways.probe(name);
   if (loading) {
     return (
       <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
@@ -459,18 +486,21 @@ function HealthBadge({
   }
   if (!health) {
     return (
-      <Button size="small" color="inherit" variant="outlined" onClick={onCheck} sx={{ fontFamily: MONO }}>
-        check
-      </Button>
+      <HintTip title={`check gateway health for ${name}`} command={probe}>
+        <Button size="small" color="inherit" variant="outlined" onClick={onCheck} sx={{ fontFamily: MONO }}>
+          check
+        </Button>
+      </HintTip>
     );
   }
   return (
-    <Tooltip
+    <HintTip
       title={
         health.ok
           ? `${String(health.status?.version ?? '')} · ${String(health.status?.server ?? '')}`
           : health.error ?? 'unreachable'
       }
+      command={probe}
     >
       <Stack
         direction="row"
@@ -503,7 +533,7 @@ function HealthBadge({
           {health.ok ? `connected · ${health.latency_ms} ms` : 'unreachable'}
         </Typography>
       </Stack>
-    </Tooltip>
+    </HintTip>
   );
 }
 
@@ -716,6 +746,23 @@ function AddGatewayDialog({
   const needsToken = form.mode === 'edge' || form.mode === 'oidc';
   const endpointOk = /^(https?|ssh):\/\/[^\s]+$/.test(form.endpoint.trim());
   const needsTokenForVerify = form.verify && needsToken && !form.token.trim();
+  // The exact `openshell gateway add` the submit below will run, kept in step
+  // with the api call so the preview never drifts from what is sent.
+  const preview = useMemo(
+    () =>
+      cliFor.gateways.add({
+        endpoint: form.endpoint.trim(),
+        name: form.name.trim() || undefined,
+        mode: form.mode,
+        remoteHost: form.mode === 'remote' ? form.remoteHost.trim() : undefined,
+        oidcIssuer: form.mode === 'oidc' ? form.oidcIssuer.trim() : undefined,
+        oidcClientId: form.mode === 'oidc' ? form.oidcClientId.trim() : undefined,
+        oidcAudience: form.mode === 'oidc' ? form.oidcAudience.trim() || undefined : undefined,
+        oidcScopes: form.mode === 'oidc' ? form.oidcScopes.trim() || undefined : undefined,
+        insecure: form.insecure || undefined,
+      }),
+    [form],
+  );
   const submit = async () => {
     setBusy(true);
     setError(null);
@@ -967,6 +1014,7 @@ function AddGatewayDialog({
           {error ? <ErrorNote message={error} /> : null}
         </Stack>
       </DialogContent>
+      <CommandPreview command={preview} divider />
       <DialogActions sx={{ p: 2, pt: 1 }}>
         <Button color="inherit" onClick={onClose} disabled={busy}>
           cancel
@@ -1068,14 +1116,16 @@ function TokenDialog({
         <Button color="inherit" onClick={onClose} disabled={busy}>
           cancel
         </Button>
-        <Button
-          variant="contained"
-          disabled={busy || !token.trim()}
-          onClick={save}
-          startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <KeyRoundedIcon />}
-        >
-          {busy ? 'saving…' : 'store token'}
-        </Button>
+        <HintTip title={`store a new token for ${gateway?.name}`} command={cliFor.gateways.setToken()}>
+          <Button
+            variant="contained"
+            disabled={busy || !token.trim()}
+            onClick={save}
+            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <KeyRoundedIcon />}
+          >
+            {busy ? 'saving…' : 'store token'}
+          </Button>
+        </HintTip>
       </DialogActions>
     </Dialog>
   );

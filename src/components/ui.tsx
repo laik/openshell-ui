@@ -21,6 +21,7 @@ import InboxRoundedIcon from '@mui/icons-material/InboxRounded';
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import { MONO, SANS, panelSx } from '../theme';
 import { phaseStyle } from '../lib/phases';
+import { commandLines, type CommandLines } from '../lib/cli';
 import { copyToClipboard } from '../lib/format';
 
 export const Panel = memo(function Panel({
@@ -247,10 +248,13 @@ export const CodeBlock = memo(function CodeBlock({
   value,
   maxHeight = 320,
   actions,
+  title = 'output',
 }: {
   value: string;
   maxHeight?: number;
   actions?: ReactNode;
+  /** Header label; command previews pass something other than "output". */
+  title?: string;
 }) {
   const { palette } = useTheme();
   return (
@@ -268,7 +272,7 @@ export const CodeBlock = memo(function CodeBlock({
         <Stack direction="row" spacing={0.85} sx={{ alignItems: 'center' }}>
           <Box sx={{ width: 8, height: 8, bgcolor: 'primary.main' }} />
           <Typography sx={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 700, color: 'text.secondary' }}>
-            output
+            {title}
           </Typography>
         </Stack>
         <Stack direction="row" spacing={0.5}>
@@ -295,6 +299,72 @@ export const CodeBlock = memo(function CodeBlock({
     </Box>
   );
 });
+
+/**
+ * The `openshell …` command a control will run, shown where the user can read
+ * and copy it. Nothing renders for actions the bridge performs without the CLI.
+ *
+ * Every mutating control in this console goes through the local CLI, so each
+ * one can be paired with `cliFor.*` (src/lib/cli.ts) to preview the exact argv
+ * before it runs.
+ */
+export const CommandPreview = memo(function CommandPreview({
+  command,
+  label = 'openshell command',
+  maxHeight = 96,
+  divider,
+}: {
+  command: CommandLines | undefined;
+  /** Header of the block; defaults to "openshell command". */
+  label?: string;
+  maxHeight?: number;
+  /**
+   * Dialog layout: inset the block and draw the rule that separates a dialog
+   * body from its actions. Inline previews sit flush with the form instead.
+   */
+  divider?: boolean;
+}) {
+  const lines = commandLines(command);
+  if (!lines.length) return null;
+  return (
+    <Box
+      sx={{
+        ...(divider
+          ? { px: 3, pt: 1.5, pb: 0.5, borderTop: '1px solid', borderColor: 'divider' }
+          : {}),
+      }}
+    >
+      <CodeBlock value={lines.join('\n')} maxHeight={maxHeight} title={label} />
+    </Box>
+  );
+});
+
+const CommandTipBody = ({ title, command }: { title?: string; command: CommandLines | undefined }) => (
+  <Stack spacing={title ? 0.6 : 0} sx={{ maxWidth: 520 }}>
+    {title ? (
+      <Typography sx={{ fontFamily: SANS, fontSize: 11.5, lineHeight: 1.5, color: 'rgba(255,255,255,0.7)' }}>
+        {title}
+      </Typography>
+    ) : null}
+    <Box
+      component="pre"
+      sx={{
+        m: 0,
+        p: 0,
+        background: 'none',
+        border: 0,
+        fontFamily: MONO,
+        fontSize: 11.5,
+        lineHeight: 1.55,
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        color: 'inherit',
+      }}
+    >
+      {commandLines(command).join('\n')}
+    </Box>
+  </Stack>
+);
 
 export const EmptyState = memo(function EmptyState({
   title,
@@ -374,6 +444,7 @@ export function ConfirmDialog({
   body,
   confirmLabel = 'confirm',
   danger,
+  command,
   onCancel,
   onConfirm,
 }: {
@@ -382,15 +453,18 @@ export function ConfirmDialog({
   body: ReactNode;
   confirmLabel?: string;
   danger?: boolean;
+  /** Show the exact command before the user commits to a destructive action. */
+  command?: CommandLines | undefined;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
   return (
-    <Dialog open={open} onClose={onCancel} maxWidth="xs" fullWidth>
+    <Dialog open={open} onClose={onCancel} maxWidth={commandLines(command).length ? 'sm' : 'xs'} fullWidth>
       <DialogTitle sx={{ pb: 1 }}>{title}</DialogTitle>
       <DialogContent sx={{ pt: 0 }}>
         <Typography sx={{ fontSize: 13.5, color: 'text.secondary' }}>{body}</Typography>
       </DialogContent>
+      {commandLines(command).length ? <CommandPreview command={command} divider maxHeight={140} /> : null}
       <DialogActions sx={{ p: 2 }}>
         <Button onClick={onCancel} color="inherit">
           cancel
@@ -408,15 +482,24 @@ export function ConfirmDialog({
   );
 }
 
+/**
+ * Hover hint for a control. With `command` it names the exact `openshell …`
+ * command the control runs under its label; without one it is a plain tooltip.
+ * Wrapping in a span keeps the tooltip working on a disabled control, which is
+ * usually what the user wants to know.
+ */
 export const HintTip = memo(function HintTip({
   title,
+  command,
   children,
 }: {
   title: string;
+  command?: CommandLines | undefined;
   children: ReactNode;
 }) {
+  const tip = commandLines(command).length ? <CommandTipBody title={title} command={command} /> : title;
   return (
-    <Tooltip title={title} enterDelay={220}>
+    <Tooltip enterDelay={220} title={tip}>
       <span style={{ display: 'inline-flex' }}>{children}</span>
     </Tooltip>
   );
@@ -424,19 +507,22 @@ export const HintTip = memo(function HintTip({
 
 export const IconAction = memo(function IconAction({
   title,
+  command,
   onClick,
   color,
   children,
   disabled,
 }: {
   title: string;
+  /** Command this control runs; shown in the same tooltip as its label. */
+  command?: CommandLines | undefined;
   onClick: () => void;
   color?: 'error' | 'primary' | 'success' | 'warning' | 'inherit';
   children: ReactNode;
   disabled?: boolean;
 }) {
   return (
-    <HintTip title={title}>
+    <HintTip title={title} command={command}>
       <IconButton
         size="small"
         onClick={onClick}

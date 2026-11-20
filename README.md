@@ -28,6 +28,7 @@ Fonts (Inter + JetBrains Mono) are bundled locally, so the console renders ident
 | **Gateways** | Multi-gateway: per-gateway health checks, scope switching, browser login/logout, token update, removal, add-by-token (edge/OIDC) with verification + automatic rollback, OIDC password-grant token fetch |
 | **Identity** | Current principal, scoped gateway session, roles, workspaces |
 | **Auth** | Two full modes: **local** (loopback, CLI mTLS identity, no sign-in) and **OIDC** (Keycloak realms via password grant, or **Microsoft Entra ID** via device-code flow; role-gated mutations, HttpOnly sessions, guarded API + terminal socket) |
+| **Command hints** | Every action shows the exact `openshell` command behind it: hover any control (including a disabled one) for its command line, destructive actions print it inside the confirm dialog, and create/edit dialogs preview it live as you type — including the multi-command cases the bridge runs (endpoint + L7 policy merge, create-from-template with resource overrides, `run` on a stopped sandbox). Built from `src/lib/cli.ts`, a mirror of the argv in `server/index.ts`; actions with no CLI surface (storing a gateway token, switching the console role) show nothing rather than inventing one |
 
 Scope selectors in the header (gateway + workspace) apply to every page and persist in
 `localStorage`. `⌘K` / `Ctrl-K` opens a jump palette across sandboxes. On narrow screens the
@@ -487,7 +488,10 @@ server/
 src/
   api/          typed client + payload types (field names match `-o json`)
   components/   AppShell, WelcomeScreen, LoginScreen, Terminal (+persistent sessions),
-                LogViewer, shared Panels/chips/PageHeader
+                LogViewer, shared Panels/chips/PageHeader + command hints
+  lib/          phases (what a phase allows), format helpers,
+                cli.ts — the argv the bridge would run, mirroring server/*.ts,
+                used for every command hint in the UI
   pages/        Overview, Sandboxes, SandboxDetail, Run, Approvals, Network,
                 Templates, Profiles, Gateways, Access
   theme.ts      INK palette, MUI theme, typography, gradient accents

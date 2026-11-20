@@ -33,8 +33,34 @@ The image builds the web bundle, downloads the checksum-verified OpenShell CLI
 (static musl binary, `OPENSHELL_VERSION` build-arg, default 0.1.8), and runs the
 bridge as non-root `console` on Node 22 with a loopback healthcheck. It binds
 `0.0.0.0`, so **a credential path is mandatory** — the fail-closed check refuses
-to start otherwise. Gateway CLI credentials mount at
-`/home/console/.config/openshell` (or point `XDG_CONFIG_HOME` at your mount).
+to start otherwise.
+
+The entrypoint (`deploy/entrypoint.sh`) does the gateway wiring at start-up
+instead of baking a copy of someone's `~/.config/openshell` into a Secret:
+
+1. stages the mounted client certificate as
+   `$XDG_CONFIG_HOME/openshell/gateways/<GATEWAY_NAME>/mtls/{ca.crt,tls.crt,tls.key}`,
+2. registers that gateway (`gateway add --local` for mTLS, `gateway add` for
+   plaintext) and selects it,
+3. reports `openshell status -o json` on stdout, then hands over to the bridge.
+
+Every CLI call is bounded, so a gateway that is still starting (or a cluster DNS
+name that does not resolve when you run the image on a laptop) cannot stall the
+container. `REQUIRE_GATEWAY=1` turns "gateway not reachable" into a crash-loop
+instead of a warning.
+
+**CLI/gateway parity.** The released CLI must be wire-compatible with your
+gateway. A gateway built from source (`openshell-gateway --version` showing a
+`-dev` build) needs a CLI from the same revision: build it for the container
+architecture and bake it in with
+
+```bash
+docker build -f deploy/Dockerfile.source-cli --build-context cli=/tmp/cli \
+  -t <your-registry>/openshell-ui:<tag> .
+```
+
+If the two versions disagree, the console starts but every call fails with a
+protobuf/"unknown method" error.
 
 ## 1. Topology
 
@@ -136,8 +162,42 @@ CA and client cert, and an administrator distributes the client pair to operator
 "download cert" API: possession of the client pair *is* the gateway authorization, so treat
 `tls.key` like a private key everywhere it travels.
 
-**Into Kubernetes.** Extract from a machine where the CLI already works against the target
-gateway (in-cluster: from the gateway pod's own config dir):
+**Into Kubernetes — use the gateway's own Secret.** When the gateway is installed
+with the OpenShell helm chart, it already owns the client PKI: the `certgen`
+pre-install hook writes a client certificate Secret (default name
+`openshell-client-tls`, from `values.server.tls.clientTlsSecretName`) with
+exactly the three keys the CLI wants. Mount it and let the entrypoint build the
+CLI registry — nothing to copy by hand, and a certificate rotation only needs
+`kubectl rollout restart`.
+
+```bash
+# what exists (names differ if the release or values were customised)
+kubectl -n openshell get svc                              # gRPC service + port
+kubectl -n openshell get secret openshell-client-tls -o jsonpath='{.data}' | jq 'keys'
+# → ["ca.crt","tls.crt","tls.key"]
+```
+
+The Deployment in `deploy/deployment.yaml` then needs only three values:
+
+| Env | Example | Why |
+| --- | --- | --- |
+| `GATEWAY_NAME` | `openshell` | registry key + the name the console shows |
+| `GATEWAY_ENDPOINT` | `https://openshell.openshell.svc.cluster.local:8080` | in-cluster gRPC address; must be a SAN of the server cert |
+| `GATEWAY_TLS_DIR` | `/secrets/gateway-mtls` | where the Secret above is mounted |
+
+Verify from inside the pod:
+
+```bash
+kubectl -n openshell exec deploy/openshell-console -- \
+  openshell --gateway openshell status -o json
+kubectl -n openshell exec deploy/openshell-console -- \
+  openshell gateway list -o json      # auth: "mtls", active: true
+```
+
+For **non-helm** gateways (a bare `openshell-gateway` process, or a gateway whose
+certs live only on your laptop) fall back to shipping the CLI config directory
+as one Secret and mounting it read-only at `/cli-config/openshell` with
+`XDG_CONFIG_HOME=/cli-config`:
 
 ```bash
 G=~/.config/openshell/gateways/openshell
@@ -149,10 +209,8 @@ kubectl create secret generic openshell-cli-creds -n openshell \
   --from-file=active_gateway=~/.config/openshell/active_gateway
 ```
 
-Mount it at the console pod's CLI config path (the Deployment in §3 mounts it at
-`/cli-config/openshell` with `XDG_CONFIG_HOME=/cli-config`; the default non-root home is
-`/home/console`, so `/home/console/.config/openshell` works without the env). The bridge
-then runs every `openshell` command with that gateway identity — exactly like your laptop.
+That copy goes stale when the gateway re-issues certs, so prefer the Secret from
+the chart whenever it exists.
 
 **Optional: one PKI for gateway and console.** The gateway's `ca.crt` can also serve as the
 console's `OPENSHELL_UI_TLS_CLIENT_CA`: anyone holding a gateway client certificate then
@@ -165,6 +223,21 @@ namespace, not for mixed-trust clusters. For distinct domains keep separate CAs 
 `console-client-ca` Certificate in §2).
 
 ## 3. Deployment wiring
+
+The apply-ready manifests live in the repo — `kubectl apply -n openshell -k deploy/k8s`
+creates the ServiceAccount, the Deployment and the Service, and mounts the gateway's
+client TLS Secret as described in §2b:
+
+| File | Purpose |
+| --- | --- |
+| `deploy/k8s/deployment.yaml` | ServiceAccount + Deployment + Service (replicas: 1, non-root, read-only rootfs, probes, resources) |
+| `deploy/k8s/console-secret.yaml` | operator token placeholder — generate the real one with `kubectl create secret` |
+| `deploy/k8s/kustomization.yaml` | `kubectl apply -n <gateway-namespace> -k deploy/k8s` |
+| `deploy/k8s/ingress.example.yaml` | optional Ingress (not in the kustomization) |
+| `deploy/entrypoint.sh` | stages the client cert, registers the gateway, starts the bridge |
+
+The snippet below is the same workload with **console-side TLS and OIDC added** — use it as
+the upgrade path once the token-based deployment works:
 
 ```yaml
 apiVersion: apps/v1
@@ -199,19 +272,26 @@ spec:
             - { name: OPENSHELL_UI_TLS_KEY, value: /tls/tls.key }
             - { name: OPENSHELL_UI_TLS_CLIENT_CA, value: /client-ca/ca.crt }
             - { name: OPENSHELL_UI_LOCAL_TOKEN_FILE, value: /operator-token/token }
-            - { name: XDG_CONFIG_HOME, value: /cli-config }     # CLI creds mount point
+            # gateway wiring, see §2b: the entrypoint builds the CLI registry
+            - { name: GATEWAY_NAME, value: openshell }
+            - { name: GATEWAY_ENDPOINT, value: https://openshell.openshell.svc.cluster.local:8080 }
+            - { name: GATEWAY_TLS_DIR, value: /secrets/gateway-mtls }
+            - { name: XDG_CONFIG_HOME, value: /config }          # writable: CLI registry
           volumeMounts:
             - { name: tls, mountPath: /tls, readOnly: true }
             - { name: client-ca, mountPath: /client-ca, readOnly: true }
             - { name: operator-token, mountPath: /operator-token, readOnly: true }
-            - { name: cli-creds, mountPath: /cli-config/openshell, readOnly: true }
+            - { name: gateway-mtls, mountPath: /secrets/gateway-mtls, readOnly: true }
+            - { name: config, mountPath: /config }               # emptyDir, writable
           readinessProbe:
             httpGet: { path: /api/auth/config, port: 8787, scheme: HTTPS }
       volumes:
         - { name: tls, secret: { secretName: console-tls } }
         - { name: client-ca, secret: { secretName: console-client-ca } }
         - { name: operator-token, secret: { secretName: console-operator-token } }
-        - { name: cli-creds, secret: { secretName: openshell-cli-creds } }
+        - { name: gateway-mtls, secret: { secretName: openshell-client-tls, optional: true } }
+        - { name: config, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }   # policy/profile temp files; mount at /tmp
 ```
 
 Notes:

@@ -37,15 +37,18 @@ import EditNoteRoundedIcon from '@mui/icons-material/EditNoteRounded';
 import LanRoundedIcon from '@mui/icons-material/LanRounded';
 
 import { api } from '../api/client';
+import { cliFor } from '../lib/cli';
 import { useAsync } from '../hooks';
 import { useShell } from '../Shell';
 import { MONO } from '../theme';
 import type { ProfileCredential, ProfileEndpoint, ProviderConfig, ProviderProfile } from '../api/types';
 import {
   CodeBlock,
+  CommandPreview,
   ConfirmDialog,
   EmptyState,
   ErrorNote,
+  HintTip,
   LoadingBlock,
   Mono,
   PageHeader,
@@ -87,18 +90,23 @@ export default function Profiles() {
         description="Provider profiles declare endpoints and credential handles. Provider configs bind real credentials inside the gateway."
         actions={
           <>
-            <Button
-              size="small"
-              variant="outlined"
-              color="inherit"
-              startIcon={<RefreshRoundedIcon />}
-              onClick={() => {
-                profiles.reload();
-                providers.reload();
-              }}
+            <HintTip
+              title="re-read profiles and provider configs"
+              command={[cliFor.reads.profileList(scope), cliFor.reads.providerList(scope)]}
             >
-              refresh
-            </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="inherit"
+                startIcon={<RefreshRoundedIcon />}
+                onClick={() => {
+                  profiles.reload();
+                  providers.reload();
+                }}
+              >
+                refresh
+              </Button>
+            </HintTip>
             {tab === 'profiles' ? (
               <Button variant="contained" startIcon={<UploadFileRoundedIcon />} onClick={() => setImportOpen(true)}>
                 import profile
@@ -189,6 +197,7 @@ export default function Profiles() {
         body="Only custom profiles can be deleted. Built-in profiles are rejected by the gateway and stay listed."
         confirmLabel="delete"
         danger
+        command={deleting ? cliFor.profiles.remove(deleting, scope) : undefined}
         onCancel={() => setDeleting(null)}
         onConfirm={async () => {
           const id = deleting;
@@ -229,6 +238,7 @@ export default function Profiles() {
         body="The provider config and its stored credential handles are removed from the gateway. Attached sandboxes keep running but lose access on their next credential refresh."
         confirmLabel="delete provider"
         danger
+        command={deletingProvider ? cliFor.providers.remove(deletingProvider.name, scope) : undefined}
         onCancel={() => setDeletingProvider(null)}
         onConfirm={async () => {
           const target = deletingProvider;
@@ -355,6 +365,7 @@ function ProviderPanel({
   onEdit: (provider: ProviderConfig) => void;
   onDelete: (provider: ProviderConfig) => void;
 }) {
+  const { scope } = useShell();
   return (
     <Panel>
       <SectionLabel
@@ -425,9 +436,11 @@ function ProviderPanel({
                     <Button size="small" startIcon={<EditNoteRoundedIcon />} onClick={() => onEdit(provider)}>
                       update
                     </Button>
-                    <IconButton size="small" color="error" onClick={() => onDelete(provider)}>
-                      <DeleteOutlineRoundedIcon fontSize="small" />
-                    </IconButton>
+                    <HintTip title="delete provider" command={cliFor.providers.remove(provider.name, scope)}>
+                      <IconButton size="small" color="error" onClick={() => onDelete(provider)}>
+                        <DeleteOutlineRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </HintTip>
                   </Stack>
                 </TableCell>
               </TableRow>
@@ -470,13 +483,22 @@ function ProfileDetailDialog({
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <Mono sx={{ fontSize: 16, fontWeight: 660 }}>{profileId}</Mono>
           <Box sx={{ flex: 1 }} />
-          <Chip
-            size="small"
-            label={format}
-            variant="outlined"
-            onClick={() => setFormat(format === 'json' ? 'yaml' : 'json')}
-            sx={{ fontFamily: MONO, cursor: 'pointer' }}
-          />
+          <HintTip
+            title={`export profile as ${format === 'json' ? 'yaml' : 'json'}`}
+            command={
+              profileId
+                ? cliFor.profiles.export(profileId, scope, format === 'json' ? 'yaml' : 'json')
+                : undefined
+            }
+          >
+            <Chip
+              size="small"
+              label={format}
+              variant="outlined"
+              onClick={() => setFormat(format === 'json' ? 'yaml' : 'json')}
+              sx={{ fontFamily: MONO, cursor: 'pointer' }}
+            />
+          </HintTip>
         </Stack>
       </DialogTitle>
       <DialogContent>
@@ -488,13 +510,18 @@ function ProfileDetailDialog({
         ) : null}
       </DialogContent>
       <DialogActions sx={{ p: 2, pt: 0 }}>
-        <Button
-          color="error"
-          startIcon={<DeleteOutlineRoundedIcon />}
-          onClick={() => profileId && onDelete(profileId)}
+        <HintTip
+          title="delete profile"
+          command={profileId ? cliFor.profiles.remove(profileId, scope) : undefined}
         >
-          delete
-        </Button>
+          <Button
+            color="error"
+            startIcon={<DeleteOutlineRoundedIcon />}
+            onClick={() => profileId && onDelete(profileId)}
+          >
+            delete
+          </Button>
+        </HintTip>
         <Box sx={{ flex: 1 }} />
         <Button color="inherit" onClick={onClose}>
           close
@@ -526,6 +553,14 @@ function ImportProfileDialog({
 
   const body = () => ({ content: url ? undefined : content, url: url.trim() || undefined, fileName, global });
   const contentId = useMemo(() => /^id:\s*([^\s#]+)/m.exec(content)?.[1] ?? null, [content]);
+
+  const cliOpts = useMemo(() => ({ url: url.trim() || undefined, global }), [url, global]);
+  const lintCommand = useMemo(() => cliFor.profiles.lint(scope, cliOpts), [scope, cliOpts]);
+  const importCommand = useMemo(() => cliFor.profiles.import(scope, cliOpts), [scope, cliOpts]);
+  const importPreview = useMemo(
+    () => (lint ? [lintCommand, importCommand] : [importCommand]),
+    [lint, lintCommand, importCommand],
+  );
 
   const runUpdate = async () => {
     const id = existsId ?? contentId;
@@ -651,34 +686,41 @@ function ImportProfileDialog({
               <Typography sx={{ fontSize: 12, flex: 1, lineHeight: 1.5 }}>
                 Profile <Mono>{existsId}</Mono> already exists in this scope — import refuses to overwrite it.
               </Typography>
-              <Button size="small" variant="outlined" color="inherit" disabled={Boolean(busy)} onClick={runUpdate}>
-                update it instead
-              </Button>
+              <HintTip title="update the existing profile" command={cliFor.profiles.update(existsId, scope, { global })}>
+                <Button size="small" variant="outlined" color="inherit" disabled={Boolean(busy)} onClick={runUpdate}>
+                  update it instead
+                </Button>
+              </HintTip>
             </Stack>
           ) : null}
         </Stack>
       </DialogContent>
+      <CommandPreview command={importPreview} divider />
       <DialogActions sx={{ p: 2, pt: 1 }}>
         <Button color="inherit" onClick={onClose} disabled={Boolean(busy)}>
           cancel
         </Button>
-        <Button
-          variant="outlined"
-          color="inherit"
-          startIcon={busy === 'lint' ? <CircularProgress size={14} /> : <RuleRoundedIcon />}
-          disabled={Boolean(busy) || (!content.trim() && !url.trim())}
-          onClick={() => run('lint')}
-        >
-          lint
-        </Button>
-        <Button
-          variant="contained"
-          startIcon={busy === 'import' ? <CircularProgress size={14} color="inherit" /> : <DownloadRoundedIcon />}
-          disabled={Boolean(busy) || (!content.trim() && !url.trim())}
-          onClick={() => run('import')}
-        >
-          import
-        </Button>
+        <HintTip title="lint this profile" command={lintCommand}>
+          <Button
+            variant="outlined"
+            color="inherit"
+            startIcon={busy === 'lint' ? <CircularProgress size={14} /> : <RuleRoundedIcon />}
+            disabled={Boolean(busy) || (!content.trim() && !url.trim())}
+            onClick={() => run('lint')}
+          >
+            lint
+          </Button>
+        </HintTip>
+        <HintTip title="import this profile" command={importCommand}>
+          <Button
+            variant="contained"
+            startIcon={busy === 'import' ? <CircularProgress size={14} color="inherit" /> : <DownloadRoundedIcon />}
+            disabled={Boolean(busy) || (!content.trim() && !url.trim())}
+            onClick={() => run('import')}
+          >
+            import
+          </Button>
+        </HintTip>
       </DialogActions>
     </Dialog>
   );
@@ -746,6 +788,26 @@ function CreateProviderDialog({
   const unknownKeys = profileInfo && allowedKeys.length ? credKeys.filter((k) => !allowedKeys.includes(k)) : [];
   const missingRequired = declaredCreds.filter(
     (c) => c.required && !(c.env_vars ?? []).some((k) => credKeys.includes(k)),
+  );
+
+  const createPreview = useMemo(
+    () =>
+      cliFor.providers.create(
+        {
+          name: name.trim(),
+          type: type.trim(),
+          credentials: parseLines(credentials),
+          config: parseLines(config),
+          labels: labels.split(/[,\n]/).map((s) => s.trim()).filter(Boolean),
+          fromExisting,
+          fromOidcToken,
+          fromGcloudAdc,
+          runtimeCredentials,
+          globalProfile,
+        },
+        scope,
+      ),
+    [name, type, credentials, config, labels, fromExisting, fromOidcToken, fromGcloudAdc, runtimeCredentials, globalProfile, scope],
   );
 
   const reset = () => {
@@ -889,43 +951,46 @@ function CreateProviderDialog({
           </Box>
         </Stack>
       </DialogContent>
+      <CommandPreview command={createPreview} divider />
       <DialogActions sx={{ p: 2, pt: 1 }}>
         <Button color="inherit" onClick={onClose} disabled={busy}>
           cancel
         </Button>
-        <Button
-          variant="contained"
-          disabled={busy || !name.trim() || !type.trim() || unknownKeys.length > 0}
-          startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <AddRoundedIcon />}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              const out = await api.createProvider(
-                {
-                  name: name.trim(),
-                  type: type.trim(),
-                  credentials: parseLines(credentials),
-                  config: parseLines(config),
-                  labels: labels.split(/[,\n]/).map((s) => s.trim()).filter(Boolean),
-                  fromExisting,
-                  fromOidcToken,
-                  fromGcloudAdc,
-                  runtimeCredentials,
-                  globalProfile,
-                },
-                scope,
-              );
-              toast('provider created', { detail: out.trim().slice(0, 180) });
-              onDone();
-            } catch (err) {
-              toast('create failed', { kind: 'err', detail: (err as Error).message });
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? 'creating…' : 'create provider'}
-        </Button>
+        <HintTip title="create this provider" command={createPreview}>
+          <Button
+            variant="contained"
+            disabled={busy || !name.trim() || !type.trim() || unknownKeys.length > 0}
+            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <AddRoundedIcon />}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const out = await api.createProvider(
+                  {
+                    name: name.trim(),
+                    type: type.trim(),
+                    credentials: parseLines(credentials),
+                    config: parseLines(config),
+                    labels: labels.split(/[,\n]/).map((s) => s.trim()).filter(Boolean),
+                    fromExisting,
+                    fromOidcToken,
+                    fromGcloudAdc,
+                    runtimeCredentials,
+                    globalProfile,
+                  },
+                  scope,
+                );
+                toast('provider created', { detail: out.trim().slice(0, 180) });
+                onDone();
+              } catch (err) {
+                toast('create failed', { kind: 'err', detail: (err as Error).message });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? 'creating…' : 'create provider'}
+          </Button>
+        </HintTip>
       </DialogActions>
     </Dialog>
   );
@@ -946,6 +1011,23 @@ function EditProviderDialog({
   const [fromExisting, setFromExisting] = useState(false);
   const [fromOidcToken, setFromOidcToken] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const updatePreview = useMemo(
+    () =>
+      provider
+        ? cliFor.providers.update(
+            provider.name,
+            {
+              credentials: parseLines(credentials),
+              config: parseLines(config),
+              fromExisting,
+              fromOidcToken,
+            },
+            scope,
+          )
+        : null,
+    [provider, credentials, config, fromExisting, fromOidcToken, scope],
+  );
 
   return (
     <Dialog
@@ -1007,39 +1089,42 @@ function EditProviderDialog({
           </Box>
         </Stack>
       </DialogContent>
+      <CommandPreview command={updatePreview} divider />
       <DialogActions sx={{ p: 2, pt: 1 }}>
         <Button color="inherit" onClick={onClose} disabled={busy}>
           cancel
         </Button>
-        <Button
-          variant="contained"
-          disabled={busy || (!credentials.trim() && !config.trim() && !fromExisting && !fromOidcToken)}
-          startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <EditNoteRoundedIcon />}
-          onClick={async () => {
-            if (!provider) return;
-            setBusy(true);
-            try {
-              const out = await api.updateProvider(
-                provider.name,
-                {
-                  credentials: parseLines(credentials),
-                  config: parseLines(config),
-                  fromExisting,
-                  fromOidcToken,
-                },
-                scope,
-              );
-              toast(`updated provider ${provider.name}`, { detail: out.trim().slice(0, 180) });
-              onDone();
-            } catch (err) {
-              toast('update failed', { kind: 'err', detail: (err as Error).message });
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? 'saving…' : 'save changes'}
-        </Button>
+        <HintTip title="update this provider" command={updatePreview}>
+          <Button
+            variant="contained"
+            disabled={busy || (!credentials.trim() && !config.trim() && !fromExisting && !fromOidcToken)}
+            startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <EditNoteRoundedIcon />}
+            onClick={async () => {
+              if (!provider) return;
+              setBusy(true);
+              try {
+                const out = await api.updateProvider(
+                  provider.name,
+                  {
+                    credentials: parseLines(credentials),
+                    config: parseLines(config),
+                    fromExisting,
+                    fromOidcToken,
+                  },
+                  scope,
+                );
+                toast(`updated provider ${provider.name}`, { detail: out.trim().slice(0, 180) });
+                onDone();
+              } catch (err) {
+                toast('update failed', { kind: 'err', detail: (err as Error).message });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? 'saving…' : 'save changes'}
+          </Button>
+        </HintTip>
       </DialogActions>
     </Dialog>
   );

@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # OpenShell Console — production image.
 #
 # Multi-stage: build the web bundle with Node, fetch the checksum-verified
@@ -9,10 +8,17 @@
 # applies: run with a credential path configured (OIDC / Entra / token / mTLS),
 # e.g.
 #   docker run -p 8787:8787 \
-#     -e OPENSHELL_UI_AUTH=oidc \
-#     -e OPENSHELL_UI_ENTRA_TENANT=… -e OPENSHELL_UI_ENTRA_CLIENT_ID=… \
-#     -e OPENSHELL_UI_LOCAL_TOKEN_FILE=/run/secrets/operator-token \
+#     -e OPENSHELL_UI_AUTH=local \
+#     -e OPENSHELL_UI_LOCAL_TOKEN=… \
+#     -e GATEWAY_ENDPOINT=http://host.docker.internal:18081 \
 #     openshell-console
+#
+# Inside Kubernetes, deploy/deployment.yaml mounts the gateway's client TLS
+# Secret; deploy/entrypoint.sh stages it as the CLI's `--local` mTLS gateway.
+#
+# The CLI version must be wire-compatible with the gateway. Pin OPENSHELL_VERSION
+# to the release your gateway runs, or bake a binary from the same source
+# revision with `--build-context cli=<dir containing ./openshell>`.
 
 FROM node:22-alpine AS build
 WORKDIR /app
@@ -49,16 +55,26 @@ RUN addgroup -S console && adduser -S console -G console
 WORKDIR /app
 ENV NODE_ENV=production \
     OPENSHELL_UI_HOST=0.0.0.0 \
-    OPENSHELL_UI_PORT=8787
+    OPENSHELL_UI_PORT=8787 \
+    # The CLI keeps its gateway registry under $XDG_CONFIG_HOME/openshell. The
+    # Deployment mounts a writable volume here so the entrypoint can stage the
+    # client certificate and register the gateway at start-up.
+    XDG_CONFIG_HOME=/config \
+    HOME=/home/console \
+    OPENSHELL_BIN=/usr/local/bin/openshell
+RUN mkdir -p /config && chown console:console /config
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY server ./server
 COPY --from=cli /cli/openshell /usr/local/bin/openshell
+COPY deploy/entrypoint.sh /usr/local/bin/openshell-console-entrypoint
+RUN chmod 0755 /usr/local/bin/openshell-console-entrypoint
 USER console
 EXPOSE 8787
 # Loopback self-check; TLS deployments use a self-signed/cluster cert, so cert
 # verification is disabled for this probe only (never for real requests).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "process.env.NODE_TLS_REJECT_UNAUTHORIZED='0';const p=process.env.OPENSHELL_UI_PORT||8787;fetch('http://127.0.0.1:'+p+'/api/auth/config').then(r=>process.exit(r.ok?0:1)).catch(()=>fetch('https://127.0.0.1:'+p+'/api/auth/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1)))"
-ENTRYPOINT ["node", "server/index.ts"]
+ENTRYPOINT ["/usr/local/bin/openshell-console-entrypoint"]
+CMD ["node", "server/index.ts"]

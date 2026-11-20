@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Box,
   Button,
@@ -24,13 +24,16 @@ import LayersRoundedIcon from '@mui/icons-material/LayersRounded';
 import { useNavigate } from 'react-router-dom';
 
 import { api } from '../api/client';
+import { cliFor } from '../lib/cli';
 import { useAsync } from '../hooks';
 import { useShell } from '../Shell';
 import { MONO } from '../theme';
 import {
+  CommandPreview,
   ConfirmDialog,
   EmptyState,
   ErrorNote,
+  HintTip,
   LoadingBlock,
   Mono,
   PageHeader,
@@ -52,9 +55,11 @@ export default function Templates() {
         description="Reusable workload specs — image, resources, env — applied with sandbox create --template."
         actions={
           <>
-            <IconButton onClick={state.reload} sx={{ border: '1px solid', borderColor: 'divider' }}>
-              <RefreshRoundedIcon />
-            </IconButton>
+            <HintTip title="re-read the template list" command={cliFor.reads.templateList(scope)}>
+              <IconButton onClick={state.reload} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                <RefreshRoundedIcon />
+              </IconButton>
+            </HintTip>
             <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setOpen(true)}>
               new template
             </Button>
@@ -140,9 +145,11 @@ export default function Templates() {
                         <Button size="small" color="inherit" onClick={() => navigate('/sandboxes?new=1')}>
                           use
                         </Button>
-                        <IconButton size="small" sx={{ color: 'error.main' }} onClick={() => setConfirm(t.name)}>
-                          <DeleteOutlineRoundedIcon fontSize="small" />
-                        </IconButton>
+                        <HintTip title="delete template" command={cliFor.templates.remove(t.name, scope)}>
+                          <IconButton size="small" sx={{ color: 'error.main' }} onClick={() => setConfirm(t.name)}>
+                            <DeleteOutlineRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </HintTip>
                       </Stack>
                     </TableCell>
                   </TableRow>
@@ -204,6 +211,7 @@ export default function Templates() {
         body="Existing sandboxes are untouched; new sandboxes can no longer be created from it."
         confirmLabel="delete"
         danger
+        command={confirm ? cliFor.templates.remove(confirm, scope) : undefined}
         onCancel={() => setConfirm(null)}
         onConfirm={async () => {
           const name = confirm!;
@@ -236,6 +244,20 @@ function TemplateDialog({
 }) {
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ name: '', image: '', cpu: '', memory: '' });
+
+  const createPreview = useMemo(
+    () =>
+      cliFor.templates.create(
+        {
+          name: form.name.trim(),
+          image: form.image.trim() || undefined,
+          cpu: form.cpu.trim() || undefined,
+          memory: form.memory.trim() || undefined,
+        },
+        scope,
+      ),
+    [scope, form],
+  );
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -275,37 +297,40 @@ function TemplateDialog({
           />
         </Stack>
       </DialogContent>
+      <CommandPreview command={createPreview} divider />
       <DialogActions sx={{ p: 2 }}>
         <Button color="inherit" onClick={onClose}>
           cancel
         </Button>
-        <Button
-          variant="contained"
-          disabled={busy || !form.name.trim()}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await api.createTemplate(
-                {
-                  name: form.name.trim(),
-                  image: form.image.trim() || undefined,
-                  cpu: form.cpu.trim() || undefined,
-                  memory: form.memory.trim() || undefined,
-                },
-                scope,
-              );
-              toast(`template ${form.name.trim()} created`);
-              onDone();
-              onClose();
-            } catch (err) {
-              toast('create failed', { kind: 'err', detail: (err as Error).message });
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? 'creating…' : 'create'}
-        </Button>
+        <HintTip title="create this template" command={createPreview}>
+          <Button
+            variant="contained"
+            disabled={busy || !form.name.trim()}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await api.createTemplate(
+                  {
+                    name: form.name.trim(),
+                    image: form.image.trim() || undefined,
+                    cpu: form.cpu.trim() || undefined,
+                    memory: form.memory.trim() || undefined,
+                  },
+                  scope,
+                );
+                toast(`template ${form.name.trim()} created`);
+                onDone();
+                onClose();
+              } catch (err) {
+                toast('create failed', { kind: 'err', detail: (err as Error).message });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? 'creating…' : 'create'}
+          </Button>
+        </HintTip>
       </DialogActions>
     </Dialog>
   );

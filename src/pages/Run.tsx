@@ -28,9 +28,12 @@ import { useShell } from '../Shell';
 import { MONO } from '../theme';
 import type { RunResult } from '../api/types';
 import { copyToClipboard } from '../lib/format';
+import { cliFor } from '../lib/cli';
 import {
+  CommandPreview,
   EmptyState,
   ErrorNote,
+  HintTip,
   LoadingBlock,
   Mono,
   PageHeader,
@@ -133,6 +136,24 @@ export default function Run() {
     }
   };
 
+  // The exact commands these controls run, rebuilt from the current selection
+  // and input so the hints and the preview follow every keystroke.
+  const runCommand = useMemo(
+    () =>
+      sandbox && command.trim()
+        ? // `run` also shows the start / resume `ensureSandboxReady()` performs
+          // for a stopped or suspended sandbox.
+          cliFor.sandbox.run(sandbox, command, scope, { start, phase: selected?.phase })
+        : null,
+    [sandbox, command, scope, start, selected],
+  );
+  const startOnlyCommand = useMemo(() => {
+    if (!selected) return null;
+    if (selected.phase === 'Suspended') return cliFor.sandbox.action(selected.name, 'resume', scope);
+    if (selected.phase === 'Stopped') return cliFor.sandbox.action(selected.name, 'start', scope);
+    return null;
+  }, [selected, scope]);
+
   return (
     <Stack spacing={2.5}>
       <PageHeader
@@ -150,16 +171,18 @@ export default function Run() {
             >
               open sandbox
             </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              color="inherit"
-              startIcon={starting ? <CircularProgress size={14} /> : <RestartAltRoundedIcon />}
-              disabled={!selected || starting || !['Stopped', 'Suspended'].includes(selected.phase)}
-              onClick={startOnly}
-            >
-              start only
-            </Button>
+            <HintTip title="start or resume this sandbox without running a command" command={startOnlyCommand}>
+              <Button
+                size="small"
+                variant="outlined"
+                color="inherit"
+                startIcon={starting ? <CircularProgress size={14} /> : <RestartAltRoundedIcon />}
+                disabled={!selected || starting || !['Stopped', 'Suspended'].includes(selected.phase)}
+                onClick={startOnly}
+              >
+                start only
+              </Button>
+            </HintTip>
           </>
         }
       />
@@ -299,14 +322,16 @@ export default function Run() {
                 ))}
               </Stack>
               <Stack direction="row" spacing={1} sx={{ mt: 1.5, alignItems: 'center' }}>
-                <Button
-                  variant="contained"
-                  startIcon={running ? <CircularProgress size={15} color="inherit" /> : <PlayArrowRoundedIcon />}
-                  disabled={!sandbox || !command.trim() || running}
-                  onClick={run}
-                >
-                  {running ? 'running…' : 'run command'}
-                </Button>
+                <HintTip title="run this command in the selected sandbox" command={runCommand}>
+                  <Button
+                    variant="contained"
+                    startIcon={running ? <CircularProgress size={15} color="inherit" /> : <PlayArrowRoundedIcon />}
+                    disabled={!sandbox || !command.trim() || running}
+                    onClick={run}
+                  >
+                    {running ? 'running…' : 'run command'}
+                  </Button>
+                </HintTip>
                 <Button
                   color="inherit"
                   size="small"
@@ -335,6 +360,11 @@ export default function Run() {
                   start or resume the sandbox when it is not ready
                 </Typography>
               </Stack>
+              {/* No dialog here, so the command the run button / ⌘↵ will run is
+                  shown inline right under the input. */}
+              <Box sx={{ mt: 1.5 }}>
+                <CommandPreview command={runCommand} />
+              </Box>
             </Box>
           </Panel>
 

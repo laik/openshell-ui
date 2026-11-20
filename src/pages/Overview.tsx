@@ -19,6 +19,7 @@ import { useAsync, useNow } from '../hooks';
 import { useShell } from '../Shell';
 import { MONO } from '../theme';
 import { failureHint, isLive, phaseStyle } from '../lib/phases';
+import { cliFor } from '../lib/cli';
 import { fullTime, relativeTime } from '../lib/format';
 import {
   Busy,
@@ -119,7 +120,9 @@ export default function Overview() {
   const liveCount = sandboxes.filter(isLive).length;
   const gateway = ctx.data?.status;
 
-  const cliHint = `openshell sandbox list --gateway ${gateway?.gateway ?? '<active>'} --workspace ${scope.workspace ?? 'default'}`;
+  // The read this page is built on, taken from the same builder the console uses
+  // for its command hints so the two can never disagree.
+  const cliHint = cliFor.sandbox.list(scope);
 
   return (
     <Grid container spacing={2.5}>
@@ -319,7 +322,7 @@ export default function Overview() {
                 <Row label="roles" value={(ctx.data?.whoami?.roles ?? []).join(', ') || '—'} />
                 <Row label="binary" value={ctx.data?.binary ?? '—'} />
                 <Divider sx={{ my: 0.5 }} />
-                <CodeBlock value={cliHint} maxHeight={110} />
+                <CodeBlock value={cliHint} maxHeight={110} title="openshell command" />
               </Stack>
             )}
           </Panel>

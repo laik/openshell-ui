@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Optional: expose the console through an Ingress instead of a port-forward.
+# Not part of kustomization.yaml — apply it explicitly, with your own host,
+# TLS secret and ingress class:
+#
+#   kubectl apply -n openshell -f deploy/k8s/ingress.example.yaml
+#
+# Then set OPENSHELL_UI_PUBLIC_URL to the same origin and put the token behind
+# your IdP / SSO proxy: the console is a credential-bearing console.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openshell-console
+  labels:
+    app.kubernetes.io/name: openshell-console
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    # The bridge is a single-replica session store; keep one client on one pod.
+    nginx.ingress.kubernetes.io/affinity: cookie
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [console.example.com]
+      secretName: openshell-console-tls
+  rules:
+    - host: console.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: openshell-console
+                port:
+                  name: http

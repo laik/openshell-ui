@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kustomize entrypoint. Apply into the gateway's own namespace:
+#
+#   kubectl apply -n <gateway-namespace> -k deploy/k8s
+#
+# `namespace:` is deliberately left unset so `-n` wins; uncomment to pin it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# namespace: openshell
+
+resources:
+  - console-secret.yaml
+  - deployment.yaml
+
+images:
+  - name: openshell-console
+    newTag: "0.1.0"

@@ -44,10 +44,13 @@ import { useShell } from '../Shell';
 import { MONO } from '../theme';
 import { allowedActions, failureHint, isLive, phaseStyle } from '../lib/phases';
 import { fullTime, relativeTime } from '../lib/format';
+import { cliFor } from '../lib/cli';
 import {
+  CommandPreview,
   ConfirmDialog,
   EmptyState,
   ErrorNote,
+  HintTip,
   IconAction,
   LoadingBlock,
   Mono,
@@ -147,12 +150,16 @@ export default function SandboxList() {
                 },
               }}
             />
-            <IconButton onClick={state.reload} sx={{ border: '1px solid', borderColor: 'divider' }}>
-              <RefreshRoundedIcon />
-            </IconButton>
-            <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setCreating(true)}>
-              new
-            </Button>
+            <HintTip title="refresh the sandbox list" command={cliFor.sandbox.list(scope)}>
+              <IconButton onClick={state.reload} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                <RefreshRoundedIcon />
+              </IconButton>
+            </HintTip>
+            <HintTip title="new sandbox">
+              <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setCreating(true)}>
+                new
+              </Button>
+            </HintTip>
           </>
         }
       />
@@ -205,9 +212,11 @@ export default function SandboxList() {
                 : 'sandboxes are isolated workloads with kernel-enforced file and network policy'
             }
             action={
-              <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setCreating(true)}>
-                create sandbox
-              </Button>
+              <HintTip title="create sandbox">
+                <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => setCreating(true)}>
+                  create sandbox
+                </Button>
+              </HintTip>
             }
           />
         ) : (
@@ -306,6 +315,7 @@ export default function SandboxList() {
                           {acts.start ? (
                             <IconAction
                               title="start (preserves workspace)"
+                              command={cliFor.sandbox.action(s.name, 'start', scope)}
                               color="success"
                               disabled={pending === `${s.name}:start`}
                               onClick={() => runAction(s.name, 'start')}
@@ -316,6 +326,7 @@ export default function SandboxList() {
                           {acts.resume ? (
                             <IconAction
                               title="resume from memory state"
+                              command={cliFor.sandbox.action(s.name, 'resume', scope)}
                               color="success"
                               disabled={pending === `${s.name}:resume`}
                               onClick={() => runAction(s.name, 'resume')}
@@ -326,6 +337,7 @@ export default function SandboxList() {
                           {acts.suspend ? (
                             <IconAction
                               title="suspend (retain memory)"
+                              command={cliFor.sandbox.action(s.name, 'suspend', scope)}
                               color="warning"
                               disabled={pending === `${s.name}:suspend`}
                               onClick={() => runAction(s.name, 'suspend')}
@@ -336,6 +348,7 @@ export default function SandboxList() {
                           {acts.stop ? (
                             <IconAction
                               title="stop (preserve workspace)"
+                              command={cliFor.sandbox.action(s.name, 'stop', scope)}
                               color="warning"
                               disabled={pending === `${s.name}:stop`}
                               onClick={() => runAction(s.name, 'stop')}
@@ -345,6 +358,7 @@ export default function SandboxList() {
                           ) : null}
                           <IconAction
                             title="delete sandbox"
+                            command={cliFor.sandbox.remove(s.name, scope)}
                             color="error"
                             disabled={pending === `${s.name}:delete`}
                             onClick={() => setConfirmDelete(s.name)}
@@ -381,6 +395,7 @@ export default function SandboxList() {
         body="The sandbox and its workspace are removed. This cannot be undone from the console."
         confirmLabel="delete"
         danger
+        command={confirmDelete ? cliFor.sandbox.remove(confirmDelete, scope) : null}
         onCancel={() => setConfirmDelete(null)}
         onConfirm={() => {
           const name = confirmDelete!;
@@ -390,6 +405,48 @@ export default function SandboxList() {
       />
     </Stack>
   );
+}
+
+/** The create form, shared by `createBody` so the preview and submit cannot drift. */
+type CreateForm = {
+  name: string;
+  mode: 'image' | 'template';
+  from: string;
+  template: string;
+  command: string;
+  cpu: string;
+  memory: string;
+  gpu: boolean;
+  providers: string[];
+  env: string;
+  detach: boolean;
+};
+
+/** The exact `POST /api/sandboxes` body this dialog sends — used by submit and by the preview. */
+function createBody(form: CreateForm): CreateSandboxBody {
+  const body: CreateSandboxBody = {
+    name: form.name.trim() || undefined,
+    command: form.command.trim() || undefined,
+    cpu: form.cpu.trim() || undefined,
+    memory: form.memory.trim() || undefined,
+    gpu: form.gpu || undefined,
+    detach: form.detach || !form.command.trim(),
+  };
+  if (form.mode === 'image' && form.from.trim()) body.from = form.from.trim();
+  if (form.mode === 'template') body.template = form.template;
+  if (form.providers.length) body.providers = form.providers;
+  const env = Object.fromEntries(
+    form.env
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => {
+        const i = l.indexOf('=');
+        return i < 0 ? [l, ''] : [l.slice(0, i), l.slice(i + 1)];
+      }),
+  );
+  if (Object.keys(env).length) body.env = env;
+  return body;
 }
 
 function CreateSandboxDialog({
@@ -410,16 +467,16 @@ function CreateSandboxDialog({
   toast: (t: string, o?: { kind?: 'ok' | 'err' | 'info'; detail?: string }) => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<CreateForm>({
     name: '',
-    mode: 'image' as 'image' | 'template',
+    mode: 'image',
     from: '',
     template: '',
     command: '',
     cpu: '',
     memory: '',
     gpu: false,
-    providers: [] as string[],
+    providers: [],
     env: '',
     detach: true,
   });
@@ -429,30 +486,23 @@ function CreateSandboxDialog({
 
   const selectedTemplate = templates.find((t) => t.name === form.template);
 
+  // The body the create call will send, and the command it maps to — rebuilt
+  // from the current form so the preview follows every keystroke.
+  const body = useMemo(() => createBody(form), [form]);
+  const preview = useMemo(
+    () =>
+      cliFor.sandbox.create(
+        body,
+        scope,
+        // The selected template's own resources: passing them is what makes the
+        // derived-template detour show up when cpu / memory / gpu differ.
+        form.mode === 'template' ? (selectedTemplate?.resources ?? null) : null,
+      ),
+    [body, scope, form.mode, selectedTemplate],
+  );
+
   const submit = async () => {
     setBusy(true);
-    const body: CreateSandboxBody = {
-      name: form.name.trim() || undefined,
-      command: form.command.trim() || undefined,
-      cpu: form.cpu.trim() || undefined,
-      memory: form.memory.trim() || undefined,
-      gpu: form.gpu || undefined,
-      detach: form.detach || !form.command.trim(),
-    };
-    if (form.mode === 'image' && form.from.trim()) body.from = form.from.trim();
-    if (form.mode === 'template') body.template = form.template;
-    if (form.providers.length) body.providers = form.providers;
-    const env = Object.fromEntries(
-      form.env
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean)
-        .map((l) => {
-          const i = l.indexOf('=');
-          return i < 0 ? [l, ''] : [l.slice(0, i), l.slice(i + 1)];
-        }),
-    );
-    if (Object.keys(env).length) body.env = env;
     try {
       const created = await api.createSandbox(body, scope);
       toast(`created ${(created as { name?: string })?.name ?? 'sandbox'}`);
@@ -630,6 +680,7 @@ function CreateSandboxDialog({
           <Typography sx={{ fontSize: 13 }}>--detach (do not attach to the main process)</Typography>
         </Stack>
       </DialogContent>
+      <CommandPreview command={preview} divider />
       <DialogActions sx={{ p: 2 }}>
         <Button color="inherit" onClick={onClose}>
           cancel

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Button,
@@ -23,9 +23,12 @@ import { api } from '../api/client';
 import { useAsync } from '../hooks';
 import { useShell } from '../Shell';
 import { MONO } from '../theme';
+import { cliFor } from '../lib/cli';
 import {
+  CommandPreview,
   EmptyState,
   ErrorNote,
+  HintTip,
   LoadingBlock,
   Mono,
   PageHeader,
@@ -59,6 +62,21 @@ export default function Network() {
     if (!sandbox && names.length) setSandbox(names[0]);
     if (!fwdSandbox && names.length) setFwdSandbox(names[0]);
   }, [names, sandbox, fwdSandbox]);
+
+  // Live previews of the exact commands the two forms below will run, rebuilt
+  // from the current field values. Empty until the required fields are filled,
+  // so the block never shows a placeholder argument like `''`.
+  const exposeCommand = useMemo(
+    () =>
+      sandbox && port.trim()
+        ? cliFor.sandbox.exposeService(sandbox, port.trim(), scope, serviceName.trim() || undefined)
+        : null,
+    [sandbox, port, serviceName, scope],
+  );
+  const startForwardCommand = useMemo(
+    () => (fwdSandbox && fwdPort.trim() ? cliFor.sandbox.startForward(fwdPort.trim(), fwdSandbox, scope) : null),
+    [fwdPort, fwdSandbox, scope],
+  );
 
   const expose = async () => {
     setBusy(true);
@@ -121,15 +139,17 @@ export default function Network() {
           <Panel>
             <SectionLabel
               right={
-                <IconButton size="small" onClick={services.reload}>
-                  <RefreshRoundedIcon fontSize="small" />
-                </IconButton>
+                <HintTip title="re-read the services in this scope" command={cliFor.reads.serviceList(scope)}>
+                  <IconButton size="small" onClick={services.reload}>
+                    <RefreshRoundedIcon fontSize="small" />
+                  </IconButton>
+                </HintTip>
               }
             >
               exposed services
             </SectionLabel>
 
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.5, flexWrap: 'wrap' }}>
               <TextField
                 select
                 label="sandbox"
@@ -159,16 +179,24 @@ export default function Network() {
                 sx={{ flex: '1 1 150px', minWidth: 150 }}
                 slotProps={{ htmlInput: { style: { fontFamily: MONO } } }}
               />
-              <Button
-                variant="contained"
-                startIcon={<PublicRoundedIcon />}
-                onClick={expose}
-                disabled={busy || !sandbox || !port}
-                sx={{ flexShrink: 0, whiteSpace: 'nowrap', alignSelf: { xs: 'stretch', md: 'center' } }}
+              <HintTip
+                title="expose this sandbox port as a service"
+                command={exposeCommand}
               >
-                expose
-              </Button>
+                <Button
+                  variant="contained"
+                  startIcon={<PublicRoundedIcon />}
+                  onClick={expose}
+                  disabled={busy || !sandbox || !port}
+                  sx={{ flexShrink: 0, whiteSpace: 'nowrap', alignSelf: { xs: 'stretch', md: 'center' } }}
+                >
+                  expose
+                </Button>
+              </HintTip>
             </Stack>
+            <Box sx={{ mb: 2 }}>
+              <CommandPreview command={exposeCommand} />
+            </Box>
 
             <Divider sx={{ mb: 1.5 }} />
 
@@ -196,9 +224,14 @@ export default function Network() {
                       <Chip label={s.authorization_mode} size="small" variant="outlined" sx={{ fontFamily: MONO }} />
                       <Chip label={s.workspace} size="small" variant="outlined" sx={{ fontFamily: MONO }} />
                       <Box sx={{ flex: 1 }} />
-                      <IconButton size="small" onClick={() => removeService(s)} sx={{ color: 'error.main' }}>
-                        <DeleteOutlineRoundedIcon fontSize="small" />
-                      </IconButton>
+                      <HintTip
+                        title={`stop exposing ${s.service || '(unnamed)'} on ${s.sandbox}`}
+                        command={cliFor.sandbox.deleteService(s.sandbox, s.service, scope)}
+                      >
+                        <IconButton size="small" onClick={() => removeService(s)} sx={{ color: 'error.main' }}>
+                          <DeleteOutlineRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </HintTip>
                     </Stack>
                     <Link
                       href={s.url}
@@ -219,14 +252,16 @@ export default function Network() {
           <Panel>
             <SectionLabel
               right={
-                <IconButton size="small" onClick={forwards.reload}>
-                  <RefreshRoundedIcon fontSize="small" />
-                </IconButton>
+                <HintTip title="re-read the tracked port forwards" command={cliFor.reads.forwardList(scope)}>
+                  <IconButton size="small" onClick={forwards.reload}>
+                    <RefreshRoundedIcon fontSize="small" />
+                  </IconButton>
+                </HintTip>
               }
             >
               port forwards
             </SectionLabel>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1.5, flexWrap: 'wrap' }}>
               <TextField
                 label="local port"
                 value={fwdPort}
@@ -247,16 +282,21 @@ export default function Network() {
                   </MenuItem>
                 ))}
               </TextField>
-              <Button
-                variant="contained"
-                startIcon={<AddRoundedIcon />}
-                onClick={startForward}
-                disabled={busy || !fwdPort || !fwdSandbox}
-                sx={{ flexShrink: 0, whiteSpace: 'nowrap', alignSelf: { xs: 'stretch', sm: 'center' } }}
-              >
-                start
-              </Button>
+              <HintTip title="forward a sandbox port to this machine" command={startForwardCommand}>
+                <Button
+                  variant="contained"
+                  startIcon={<AddRoundedIcon />}
+                  onClick={startForward}
+                  disabled={busy || !fwdPort || !fwdSandbox}
+                  sx={{ flexShrink: 0, whiteSpace: 'nowrap', alignSelf: { xs: 'stretch', sm: 'center' } }}
+                >
+                  start
+                </Button>
+              </HintTip>
             </Stack>
+            <Box sx={{ mb: 2 }}>
+              <CommandPreview command={startForwardCommand} />
+            </Box>
             <Divider sx={{ mb: 1.5 }} />
             {forwards.loading ? <LoadingBlock rows={2} /> : null}
             {(forwards.data ?? []).length === 0 && !forwards.loading ? (
@@ -281,9 +321,14 @@ export default function Network() {
                     <Mono sx={{ fontWeight: 620 }}>{String(f.local ?? f.target_port)}</Mono>
                     <Mono dim>→ {String(f.target_host ?? '127.0.0.1')}:{String(f.target_port)}</Mono>
                     <Box sx={{ flex: 1 }} />
-                    <Button size="small" color="error" startIcon={<StopRoundedIcon />} onClick={() => stopForward(f)}>
-                      stop
-                    </Button>
+                    <HintTip
+                      title="stop this port forward"
+                      command={cliFor.sandbox.stopForward(String(f.local ?? f.target_port), String(f.sandbox ?? ''), scope)}
+                    >
+                      <Button size="small" color="error" startIcon={<StopRoundedIcon />} onClick={() => stopForward(f)}>
+                        stop
+                      </Button>
+                    </HintTip>
                   </Box>
                 ))}
               </Stack>
